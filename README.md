@@ -21,7 +21,7 @@
 1. 将仓库克隆到 `/opt/xiaoya-voice`，检出审核的完整提交。
 2. 将原ZipVoice模型、espeak数据、12份参考及当前 `voice-catalog.json` 私有迁移到 `/var/lib/xiaoya-voice/models/zipvoice`，保留相对路径和摘要。运行时目录必须可供容器UID/GID `10001:10001`读取。
 3. 按 [容器配置模板](deploy/docker/config.example.json) 准备 `/etc/xiaoya-voice/config.json`，通过私有方式填入与HHT一致的现有签名密钥。建议配置 `root:10001`、权限0640，目录0750；空密钥不能启动。
-4. 忙碌的共机服务器优先下载同一提交通过CI的 `voice-image-<完整提交>` 制品，核对制品SHA256及内部 `image-manifest.json`，执行 `docker load --input image.tar.gz`。镜像不包含私有模型/配置。CI制品保留一天，不能当作长期备份。
+4. 忙碌的共机服务器优先下载同一提交通过CI的 `voice-image-<完整提交>` 制品，核对制品SHA256及内部 `image-manifest.json`，执行 `docker load --input image.tar.gz`，再运行 `python3 tools/verify_loaded_image.py --manifest image-manifest.json`。验证文件层、运行配置及版本，兼容Docker不同后端的ID表示。镜像不包含私有模型/配置。CI制品保留一天，不能当作长期备份。
 5. 执行 [受控发布脚本](deploy/release.sh)，参数是本次完整提交；已加载相同revision的镜像时跳过服务器构建：
 
    ```sh
@@ -55,4 +55,4 @@ python tools/check_source.py
 
 这些自动检查不需要私有模型。真实合成需要另外准备私有资产及配置。Windows可执行 `./start-local.ps1 -ConfigPath <私有配置路径>`；默认寻找本项目 `.runtime/config.json`，实际模型路径按本机设置，停止/status脚本仅管理本项目记录的语音进程。
 
-CI在Ubuntu24.04/Python3.12上运行检查并构建CPU容器，不下载参考录音或私有模型。模型实现来自 [ZipVoice](https://github.com/k2-fsa/ZipVoice) / [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)，运行库版本见 `requirements.txt`；迁移原模型时保留其原始许可证。
+CI在Ubuntu24.04/Python3.12上运行检查并构建CPU容器，还会在实际运行镜像内检查完整响度/重采样/限幅链，不下载参考录音或私有模型。模型实现来自 [ZipVoice](https://github.com/k2-fsa/ZipVoice) / [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)，运行库版本见 `requirements.txt`；迁移原模型时保留其原始许可证。

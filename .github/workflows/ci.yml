@@ -43,6 +43,8 @@ jobs:
         run: |
           XIAOYA_VOICE_IMAGE="xiaoya-voice:$GITHUB_SHA" XIAOYA_VOICE_COMMIT="$GITHUB_SHA" docker compose config --quiet
           docker build --build-arg "VCS_REF=$GITHUB_SHA" --tag "xiaoya-voice:$GITHUB_SHA" .
+      - name: Verify actual container audio filters
+        run: docker run --rm -i --network none --read-only --cpus 1 --memory 256m --pids-limit 64 "xiaoya-voice:$GITHUB_SHA" python - < tools/check_container_audio.py
       - name: Package reviewed deployment image
         if: github.ref == 'refs/heads/main'
         run: python tools/package_ci_image.py

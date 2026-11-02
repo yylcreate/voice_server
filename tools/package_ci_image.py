@@ -16,7 +16,10 @@ assert image['Config']['Labels']['org.opencontainers.image.revision']==commit
 digest=hashlib.sha256()
 with archive.open('rb')as source:
     for chunk in iter(lambda:source.read(1024*1024),b''):digest.update(chunk)
+fields=['User','Env','Cmd','Entrypoint','WorkingDir','Labels','Healthcheck','ExposedPorts','Volumes','StopSignal','Shell']
 manifest={'commit':commit,'image_tag':tag,'image_id':image['Id'],'archive':'image.tar.gz',
+          'rootfs_diff_ids':image['RootFS']['Layers'],'runtime_config':{key:image['Config'].get(key)for key in fields},
+          'os':image['Os'],'architecture':image['Architecture'],
           'archive_sha256':digest.hexdigest(),'archive_bytes':archive.stat().st_size,'private_assets_included':False}
 (directory/'image-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
 print(json.dumps(manifest))

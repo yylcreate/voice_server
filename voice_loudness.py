@@ -10,7 +10,8 @@ import numpy as np
 
 
 class LoudnessNormalizer:
-    VERSION='bs1770-two-pass-limiter-v3-short'
+    # 原VERSION为bs1770-two-pass-limiter-v3-short，布局声明修复后分开缓存。--yyl
+    VERSION='bs1770-two-pass-limiter-v3-short-mono'
 
     def __init__(self,executable='ffmpeg',threads=None):
         resolved=shutil.which(str(executable))
@@ -68,7 +69,9 @@ class LoudnessNormalizer:
                  f':offset={report["target_offset"]}')
         # loudnorm limits at192kHz; subsequent downsampling can overshoot narrow
         # transients. Limit after the24kHz resampler too, with latency compensated.
-        filters+=',aresample=24000,alimiter=limit=0.84:level=false:attack=5:release=50:latency=true'
+        # 原 filters+=',aresample=24000,alimiter=limit=0.84:level=false:attack=5:release=50:latency=true'
+        # 输入始终单声道；显式保留mono布局，兼容FFmpeg5.1的滤镜协商。--yyl
+        filters+=',aresample=24000:out_chlayout=mono,alimiter=limit=0.84:level=false:attack=5:release=50:latency=true'
         raw,after=self._run(samples,filters)
         output=np.frombuffer(raw,dtype='<f4').copy()
         if not len(output)or not np.isfinite(output).all()or float(np.max(np.abs(output)))>.96:
