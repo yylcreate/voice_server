@@ -21,7 +21,8 @@
 1. 将仓库克隆到 `/opt/xiaoya-voice`，检出审核的完整提交。
 2. 将原ZipVoice模型、espeak数据、12份参考及当前 `voice-catalog.json` 私有迁移到 `/var/lib/xiaoya-voice/models/zipvoice`，保留相对路径和摘要。运行时目录必须可供容器UID/GID `10001:10001`读取。
 3. 按 [容器配置模板](deploy/docker/config.example.json) 准备 `/etc/xiaoya-voice/config.json`，通过私有方式填入与HHT一致的现有签名密钥。建议配置 `root:10001`、权限0640，目录0750；空密钥不能启动。
-4. 执行 [受控发布脚本](deploy/release.sh)，参数是本次完整提交：
+4. 忙碌的共机服务器优先下载同一提交通过CI的 `voice-image-<完整提交>` 制品，核对制品SHA256及内部 `image-manifest.json`，执行 `docker load --input image.tar.gz`。镜像不包含私有模型/配置。CI制品保留一天，不能当作长期备份。
+5. 执行 [受控发布脚本](deploy/release.sh)，参数是本次完整提交；已加载相同revision的镜像时跳过服务器构建：
 
    ```sh
    cd /opt/xiaoya-voice

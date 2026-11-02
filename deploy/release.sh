@@ -30,8 +30,11 @@ if [[ -n $old_container ]]; then
     old_running=$(docker inspect --format '{{.State.Running}}' "$old_container")
 fi
 
-# 先构建与验证资产，原容器继续运行；镜像中不复制模型或配置。
-docker build --build-arg "VCS_REF=$commit" --tag "$XIAOYA_VOICE_IMAGE" .
+# 先使用已核验并加载的CI镜像；没有该提交镜像时才本机构建。--yyl
+# 原无条件 docker build --build-arg "VCS_REF=$commit" --tag "$XIAOYA_VOICE_IMAGE" .
+if ! docker image inspect "$XIAOYA_VOICE_IMAGE" >/dev/null 2>&1; then
+    docker build --build-arg "VCS_REF=$commit" --tag "$XIAOYA_VOICE_IMAGE" .
+fi
 [[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$XIAOYA_VOICE_IMAGE") == "$commit" ]] || fail 'Image revision mismatch.'
 docker run --rm --network none --read-only --cpus 2.5 --memory 4g --pids-limit 128 \
     --mount type=bind,src=/etc/xiaoya-voice/config.json,dst=/run/voice/config.json,readonly \
