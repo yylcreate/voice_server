@@ -1,0 +1,20 @@
+{
+  "name": "amd-4vcpu-12gb",
+  "source": "User supplied on 2026-11-02; actual host not inspected",
+  "cpu_class": "AMD High Performance",
+  "vcpus": 4,
+  "memory_mb": 12288,
+  "nvme_gb": 260,
+  "monthly_transfer_tb": 7,
+  "gpu": false,
+  "voice_model_workers": 1,
+  "voice_inference_threads": 2,
+  "voice_active_streams": 2,
+  "ffmpeg_threads": 1,
+  "cpu_quota_percent": 250,
+  "memory_high_gib": 3,
+  "memory_max_gib": 4,
+  "pcm_cache_mib": 32,
+  "pcm_cache_ttl_seconds": 300,
+  "production_capacity_verified": false
+}

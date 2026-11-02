@@ -1,0 +1,10 @@
+{
+  "secret": "",
+  "model_dir": "/models/zipvoice",
+  "catalog_path": "/models/zipvoice/voice-catalog.json",
+  "deployment_target": "amd-4vcpu-12gb",
+  "threads": 2,
+  "max_streams": 2,
+  "ffmpeg_threads": 1,
+  "ffmpeg": "ffmpeg"
+}

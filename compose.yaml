@@ -1,0 +1,48 @@
+name: xiaoya-voice
+
+services:
+  voice:
+    image: ${XIAOYA_VOICE_IMAGE:?Set the reviewed immutable voice image tag}
+    build:
+      context: .
+      args:
+        VCS_REF: ${XIAOYA_VOICE_COMMIT:-unknown}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8793:8793"
+    environment:
+      XIAOYA_VOICE_CONFIG: /run/voice/config.json
+      XIAOYA_VOICE_TARGET: amd-4vcpu-12gb
+    volumes:
+      - type: bind
+        source: /etc/xiaoya-voice/config.json
+        target: /run/voice/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /var/lib/xiaoya-voice/models/zipvoice
+        target: /models/zipvoice
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 2.5
+    cpu_shares: 256
+    mem_reservation: 3g
+    mem_limit: 4g
+    pids_limit: 128
+    stop_grace_period: 120s
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

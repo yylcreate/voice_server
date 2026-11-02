@@ -1,0 +1,40 @@
+[Unit]
+Description=Xiaoya private CPU voice service (4 vCPU target)
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=xiaoya-voice
+Group=xiaoya-voice
+WorkingDirectory=/opt/xiaoya-voice
+Environment=XIAOYA_VOICE_CONFIG=/etc/xiaoya-voice/config.json
+Environment=XIAOYA_VOICE_TARGET=amd-4vcpu-12gb
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=OMP_NUM_THREADS=2
+Environment=MKL_NUM_THREADS=2
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=NUMEXPR_NUM_THREADS=2
+ExecStart=/opt/xiaoya-voice/.venv/bin/python -m uvicorn server:app_factory --factory --host 127.0.0.1 --port 8793 --workers 1 --no-access-log
+ExecStartPost=/opt/xiaoya-voice/.venv/bin/python /opt/xiaoya-voice/deploy/check_ready.py --timeout 150
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=120
+KillMode=control-group
+Nice=5
+CPUAccounting=true
+CPUWeight=50
+CPUQuota=250%
+MemoryAccounting=true
+MemoryHigh=3G
+MemoryMax=4G
+TasksMax=128
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

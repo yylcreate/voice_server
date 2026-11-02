@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "url": "http://127.0.0.1:8793",
+  "secret": "",
+  "model_dir": "/var/lib/xiaoya-voice/models/zipvoice",
+  "catalog_path": "/var/lib/xiaoya-voice/models/zipvoice/voice-catalog.json",
+  "ffmpeg": "/usr/bin/ffmpeg",
+  "deployment_target": "amd-4vcpu-12gb"
+}

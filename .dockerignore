@@ -1,0 +1,13 @@
+# 仅以下运行文件进入构建上下文；私有配置、模型与录音不进入镜像。--yyl
+*
+!Dockerfile
+!requirements.txt
+!server.py
+!voice_engine.py
+!voice_profiles.py
+!voice_loudness.py
+!runtime_profiles.py
+!deploy/
+deploy/*
+!deploy/check_ready.py
+!deploy/check_target.py
