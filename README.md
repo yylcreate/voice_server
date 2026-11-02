@@ -4,6 +4,8 @@
 
 本仓库管理服务源码、检查和部署文件。模型、参考录音、目录转写及签名配置由服务器私有保存，部署时单独迁移；它们不进入Git、镜像或App安装包。
 
+当前主机入口、目录、资源预算与实际短句测量见 [部署记录](deploy/production.md)。--yyl
+
 ## 当前行为
 
 - 常驻模型，单原生推理工作线程；支持单独音频线程完成原BS.1770响度和真峰值校验。
@@ -38,6 +40,8 @@
 原HHT业务接口处理登录、AI许可与个人音色设置，再签名调用本服务。后台设置 `HHT_VOICE_BASE_URL` 与 `HHT_VOICE_SERVICE_SECRET`；基础URL仅含协议/主机/可选端口，不能含路径。跨主机使用校验证书的HTTPS。
 
 可将 [Nginx片段](deploy/nginx.voice.conf) 合并到现有HTTPS站点：仅新增精确的 `/v1/stream` 与 `/voice/health`，签名路径和query保持，关闭语音缓冲。检查已有路由冲突，备份原配置，通过 `nginx -t` 后平滑重载。未经签名的合成返回403。
+
+使用边缘代理时，将片段放到实际接收回源请求的原站点 `server` 中；如现有回源使用HTTP80，也需在该块增加相同精确路由。保持原站点的证书、其他路由和鉴权配置。HHT的代理计时头兼容补丁及纯PHP检查见 [接入兼容说明](integrations/README.md)。签名检查工具使用明确的 `Xiaoya-Voice-Deployment-Probe/1.0` 客户端标识，测试不改变边缘访问策略。--yyl
 
 `POST /v1/stream?user_id=<账号>` 接收 `user_id`、32位十六进制 `request_id`、`text` 和可选 `voice_id`。签名头为 `X-Hht-Timestamp`、`X-Hht-Nonce`、`X-Hht-Signature`；规范及可执行样例见 [签名流检查工具](tools/smoke_test.py) 与 [协议检查](test_server.py)。接口返回的 `cached=true` 也包含同次进行中计算的复用。
 

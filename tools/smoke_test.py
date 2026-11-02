@@ -34,6 +34,7 @@ def main():
     message='\n'.join(['POST',path,stamp,nonce,hashlib.sha256(raw).hexdigest()])
     headers={'Content-Type':'application/json','X-Hht-Timestamp':stamp,'X-Hht-Nonce':nonce,
              'X-Hht-Signature':hmac.new(secret.encode(),message.encode(),hashlib.sha256).hexdigest()}
+    headers['User-Agent']='Xiaoya-Voice-Deployment-Probe/1.0'  # 明确测试客户端身份，兼容边缘通用脚本UA策略。--yyl
     request=urllib.request.Request(base+path,data=raw,headers=headers,method='POST')
     start=time.perf_counter();pending=bytearray();magic=False;metadata=None;complete=None;first_pcm=None
     pcm_bytes=0;digest=hashlib.sha256();progress=[]

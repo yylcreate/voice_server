@@ -1,0 +1,16 @@
+--- a/ysim/plugin/ysimplghhtapi/app/service/VoiceHttpStreamDecoder.php
++++ b/ysim/plugin/ysimplghhtapi/app/service/VoiceHttpStreamDecoder.php
+@@ -32,7 +32,12 @@
+                     $pair = explode(':', $line, 2);
+                     if (count($pair) !== 2) throw new \RuntimeException('Invalid upstream header');
+                     $key = strtolower(trim($pair[0]));
+-                    if (isset($headers[$key])) throw new \RuntimeException('Duplicate upstream header');
++                    // if (isset($headers[$key])) throw new \RuntimeException('Duplicate upstream header'); // 原一律拒绝重复头。--yyl
++                    if (isset($headers[$key])) {
++                        // Cloudflare可重复发送列表型计时头；本解码器不使用它，格式/分块头仍严格拒绝重复。--yyl
++                        if ($key === 'server-timing') continue; // --yyl
++                        throw new \RuntimeException('Duplicate upstream header'); // --yyl
++                    }
+                     $headers[$key] = strtolower(trim($pair[1]));
+                 }
+                 if (($headers['transfer-encoding'] ?? '') !== 'chunked' || isset($headers['content-length']) ||
