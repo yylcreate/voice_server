@@ -15,11 +15,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OPENBLAS_NUM_THREADS=1 \
     NUMEXPR_NUM_THREADS=2
 
+# Debian预留voice组，专用账号使用独立名称并保持UID/GID10001。--yyl
+# 原 groupadd --gid 10001 voice / useradd --uid 10001 --gid voice ... voice
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg libgomp1 libstdc++6 ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && groupadd --gid 10001 voice \
- && useradd --uid 10001 --gid voice --no-create-home --shell /usr/sbin/nologin voice
+ && groupadd --gid 10001 xiaoya-voice \
+ && useradd --uid 10001 --gid xiaoya-voice --no-create-home --shell /usr/sbin/nologin xiaoya-voice
 
 WORKDIR /app
 COPY requirements.txt ./
