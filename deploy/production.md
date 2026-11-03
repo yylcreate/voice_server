@@ -2,14 +2,22 @@
 
 2026-11-02部署到现有AMD EPYC-Rome 4vCPU、12GB内存主机，使用ZipVoice-Distill。原12份参考音色、温柔桃子升级版原A和合成参数保持。--yyl
 
-- 源码：[yylcreate/voice_server](https://github.com/yylcreate/voice_server)，运行版本以容器 `org.opencontainers.image.revision` 与 `/opt/xiaoya-voice` 的完整Git提交对应。
-- 健康：[https://aichat.6xmu.com/voice/health](https://aichat.6xmu.com/voice/health)。
-- 合成：`POST https://aichat.6xmu.com/v1/stream?user_id=<账号>`，必须使用后台HMAC签名，未签名请求返回403。
+2026-11-03使用独立语音域名 `voice.6xmu.com`。该变更仅添加专用Nginx站点并更新HHT调用基址，原模型镜像仍为 `65015625c2a094ff8d163930d6e747772238dd7c`，推理参数保持；路由版本由当前Git提交管理。--yyl
+
+- 源码：[yylcreate/voice_server](https://github.com/yylcreate/voice_server)。模型版本以容器 `org.opencontainers.image.revision` 为准，路由版本以 `/opt/xiaoya-voice` 的Git提交为准；仅改域名时核对两者运行模块一致，无需重启模型。
+- 健康：[https://voice.6xmu.com/health](https://voice.6xmu.com/health)。
+- 合成：`POST https://voice.6xmu.com/v1/stream?user_id=<账号>`，必须使用后台HMAC签名，未签名请求返回403。
 - 程序：`/opt/xiaoya-voice`；私有模型：`/var/lib/xiaoya-voice/models/zipvoice`；私有配置：`/etc/xiaoya-voice/config.json`。
 - Docker Compose项目 `xiaoya-voice`，容器 `xiaoya-voice-voice-1`；宿主端口仅 `127.0.0.1:8793`，经原Nginx站点提供HTTPS入口。
 - CPU上限2.5核、内存上限4GiB，2条活动请求、单原生推理工作线程、2个模型线程、1个音频处理线程。第三条同时活动请求返回429；相同账号/音色/文字可复用进行中的计算。
 
-本机HHT的私有配置仅将 `url` 从原环回地址切换到 `https://aichat.6xmu.com`，签名密钥、模型路径和音色目录保留。原本机模型服务保留为回退；App继续调用业务后台，无需携带服务密钥或内置模型。其他机器部署HHT时，仍需私有设置相同的基础URL与密钥。
+本机HHT的私有配置 `url` 使用 `https://voice.6xmu.com`，签名密钥、模型路径和音色目录保留。原本机模型服务保留为回退；App继续调用业务后台，无需携带服务密钥或内置模型。其他机器部署HHT时，仍需私有设置相同的基础URL与密钥。
+
+## 独立域名部署
+
+当前Cloudflare代理记录指向同一AI主机。现有 `/etc/nginx/ssl/aichat.6xmu.com.pem` 实际为覆盖 `*.6xmu.com` 的Origin通配证书，专用站点复用它，不复制私钥。原AI站点及旧语音入口保留，专用域名只转发签名语音流和健康请求，其他路径404。
+
+核对Git提交后运行 `sudo python3 deploy/setup_voice_domain.py --commit "$(git rev-parse HEAD)"`。脚本先检查证书域名/有效期、运行源码与当前镜像一致性，持有共享发布锁，保留现场并通过 `nginx -t` 后平滑重载。失败恢复本专用站点；不重启模型或AI容器。回执存于 `/var/lib/xiaoya-voice/domain-releases/`。
 
 ## 本次验证与性能边界
 

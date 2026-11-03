@@ -6,6 +6,8 @@
 
 当前主机入口、目录、资源预算与实际短句测量见 [部署记录](deploy/production.md)。--yyl
 
+语音正式域名为 `https://voice.6xmu.com`，状态入口为 [/health](https://voice.6xmu.com/health)。专用站点配置见 [Nginx模板](deploy/nginx.voice-domain.conf)，基础URL仅使用域名，保持原 `/v1/stream` 签名路径。--yyl
+
 ## 当前行为
 
 - 常驻模型，单原生推理工作线程；支持单独音频线程完成原BS.1770响度和真峰值校验。
