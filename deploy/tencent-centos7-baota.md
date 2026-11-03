@@ -271,7 +271,9 @@ Set-Location 'D:\yl\saiadmin-server\voice_server'
 
 站点只是转发入口，不在网站目录放模型/config.json，也不用PHP或数据库。操作入口见[宝塔创建站点](https://docs.bt.cn/user-guide/site/php/create-web/)。
 
-点击新站点 → SSL → 当前证书；从腾讯云SSL证书控制台下载该域名的“Nginx”证书，密钥KEY填.key内容，证书PEM填完整证书链.crt内容，点击“保存并启用”。已有可信证书也可使用；确认浏览器HTTPS证书正常后，再开启“强制HTTPS”。这是[腾讯云的宝塔证书部署步骤](https://cloud.tencent.com/document/product/400/50874)。
+还没有证书时：点击新站点 → SSL → Let's Encrypt → 申请证书，品牌选择Let's Encrypt、算法可选RSA2048；确认域名已解析且80可达时选文件验证，选中voice-cn.6xmu.com，提交申请，成功后保存并启用。面板也支持DNS验证。入口与字段见[宝塔证书申请说明](https://docs.bt.cn/user-guide/site/php/site-config/ssl/)。
+
+已有腾讯云证书时：点击新站点 → SSL → 当前证书；从腾讯云SSL证书控制台下载该域名的“Nginx”证书，密钥KEY填.key内容，证书PEM填完整证书链.crt内容，点击“保存并启用”。确认浏览器HTTPS证书正常后，再开启“强制HTTPS”。这是[腾讯云的宝塔证书部署步骤](https://cloud.tencent.com/document/product/400/50874)。
 
 不要使用原Cloudflare Origin证书给DNS only直连访问，也不把整个旧线上server配置覆盖到宝塔。
 
