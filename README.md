@@ -23,6 +23,8 @@
 
 国内服务器的镜像/模型/12音色迁移、SSH隧道及浏览器双机对照见 [国内部署教程](deploy/china-server.md)。--yyl
 
+腾讯云CentOS7、4核16G、宝塔11.1的逐项面板操作、容器内测速及宝塔Nginx配置见 [腾讯云宝塔操作教程](deploy/tencent-centos7-baota.md)。--yyl
+
 需要Docker Engine及Compose插件。按已审核Git提交构建，不使用工作区临时文件覆盖服务。
 
 1. 将仓库克隆到 `/opt/xiaoya-voice`，检出审核的完整提交。
