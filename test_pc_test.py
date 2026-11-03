@@ -1,5 +1,6 @@
 """PC test boundary/protocol checks use synthetic audio and private-value fixtures only. --yyl"""
-import hashlib,hmac,http.client,json,pathlib,struct,tempfile,threading,unittest,uuid
+import hashlib,hmac,http.client,json,pathlib,ssl,struct,tempfile,threading,unittest,uuid
+from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from tools.pc_test import Cancelled,Job,Jobs,Settings,TestError,VoiceWire,make_server,sign
 
 SECRET='test-only-pc-signing-fixture-do-not-deploy-00000'
@@ -75,6 +76,7 @@ class BoundaryTests(unittest.TestCase):
         (root/'catalog.json').write_text(json.dumps(catalog),encoding='utf-8')
         config={'secret':SECRET,'catalog_path':str(root/'catalog.json'),'model_dir':'private-model-path'}
         (root/'settings.json').write_text(json.dumps(config),encoding='utf-8')
+        self.config_path=root/'settings.json'
         self.settings=Settings(root/'settings.json');self.server=make_server(self.settings,0)
         self.thread=threading.Thread(target=self.server.serve_forever,kwargs={'poll_interval':.02},daemon=True);self.thread.start()
         self.port=self.server.server_address[1]
@@ -99,6 +101,51 @@ class BoundaryTests(unittest.TestCase):
         headers={'Content-Type':'application/json','X-Voice-Test-Token':self.settings.token}
         body={'run_id':uuid.uuid4().hex,'text':'test','voice_id':'a','mode':'fresh','user_id':1,'url':'http://attacker.invalid'}
         self.assertEqual(self.request('/api/synthesize',body,headers)[0],400)
+    def test_startup_target_rejects_remote_plaintext_credentials_and_url_suffixes(self):
+        for target in ['http://server.example','http://192.168.1.20:8793','ftp://server.example',
+                       'https://name:secret@server.example','https://server.example/v1/stream',
+                       'https://server.example?x=1','https://server.example#x','https://server.example:0',
+                       'https://server.example:65536','https://server.example\n','']:
+            with self.subTest(target=target),self.assertRaises(TestError):Settings(self.config_path,target)
+    def test_remote_https_target_keeps_hostname_and_certificate_verification(self):
+        settings=Settings(self.config_path,'https://cn-test.example:8443/')
+        connection=settings.connect()
+        try:
+            self.assertEqual((connection.host,connection.port),('cn-test.example',8443))
+            self.assertTrue(connection._context.check_hostname)
+            self.assertEqual(connection._context.verify_mode,ssl.CERT_REQUIRED)
+            self.assertEqual(settings.public()['endpoint'],'https://cn-test.example:8443')
+        finally:connection.close()
+    def test_real_loopback_target_receives_signature_and_returns_validated_pcm(self):
+        received={}
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_GET(self):
+                received['health_path']=self.path
+                raw=json.dumps({'ready':True,'active':0,'runtime':{'target':'synthetic-test'}}).encode()
+                self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+            def do_POST(self):
+                raw=self.rfile.read(int(self.headers['Content-Length']))
+                message='\n'.join(['POST',self.path,self.headers['X-Hht-Timestamp'],self.headers['X-Hht-Nonce'],hashlib.sha256(raw).hexdigest()])
+                received['signature_valid']=hmac.compare_digest(self.headers['X-Hht-Signature'],hmac.new(SECRET.encode(),message.encode(),hashlib.sha256).hexdigest())
+                received['body']=json.loads(raw)
+                if not received['signature_valid']:self.send_error(403);return
+                data=wire();self.send_response(200);self.send_header('Content-Type','application/vnd.yilian.xiaoya-voice')
+                self.send_header('Content-Length',str(len(data)));self.send_header('Connection','close');self.end_headers();self.wfile.write(data)
+        upstream=ThreadingHTTPServer(('127.0.0.1',0),Upstream)
+        worker=threading.Thread(target=upstream.serve_forever,kwargs={'poll_interval':.02},daemon=True);worker.start()
+        endpoint='http://127.0.0.1:'+str(upstream.server_address[1])
+        self.settings=Settings(self.config_path,endpoint);self.server.settings=self.settings
+        try:
+            status,raw=self.request('/api/health');self.assertEqual(status,200)
+            self.assertEqual(json.loads(raw)['endpoint'],endpoint);self.assertEqual(received['health_path'],'/health')
+            headers={'Content-Type':'application/json','X-Voice-Test-Token':self.settings.token}
+            body={'run_id':uuid.uuid4().hex,'text':'国内对照测试','voice_id':'a','mode':'fresh'}
+            status,raw=self.request('/api/synthesize',body,headers);events=[json.loads(line)for line in raw.splitlines()]
+            self.assertEqual(status,200);self.assertTrue(received['signature_valid'])
+            self.assertEqual(received['body']['text'],body['text']);self.assertEqual(events[0]['endpoint'],endpoint)
+            self.assertEqual(events[-1]['type'],'done');self.assertEqual(events[-1]['pcm_sha256'],hashlib.sha256(PCM*2).hexdigest())
+        finally:upstream.shutdown();upstream.server_close();worker.join(2)
     def test_proxy_retains_audio_timeout_after_close_header_and_validates_full_stream(self):
         class Transport:
             timeout=10

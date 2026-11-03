@@ -1,6 +1,6 @@
 """Loopback-only PC tester for the real HTTPS voice service; signing stays on this PC. --yyl"""
 from __future__ import annotations
-import argparse,base64,hashlib,hmac,http.client,json,pathlib,re,secrets,socket,ssl,struct,sys,threading,time,uuid
+import argparse,base64,hashlib,hmac,http.client,json,pathlib,re,secrets,socket,ssl,struct,sys,threading,time,urllib.parse,uuid
 from collections import OrderedDict
 from dataclasses import dataclass,field
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -137,7 +137,17 @@ class Jobs:
             if job.state!='failed':job.state='complete'if success and not job.cancelled.is_set()else'cancelled'if job.cancelled.is_set()else'failed'
 
 class Settings:
-    def __init__(self,path):
+    # 原 def __init__(self,path)：线上目标固定为UPSTREAM；国内对照仅允许启动者指定目标，网页不能覆盖。--yyl
+    def __init__(self,path,upstream=UPSTREAM):
+        try:
+            if not isinstance(upstream,str)or any(ch.isspace()or ord(ch)<33 for ch in upstream):raise ValueError()
+            target=urllib.parse.urlsplit(upstream)
+            if(target.scheme not in('http','https')or not target.hostname or target.path not in('','/')or
+               target.query or target.fragment or target.username is not None or target.password is not None or
+               (target.scheme=='http'and target.hostname not in('127.0.0.1','localhost','::1'))or
+               (target.port is not None and not 1<=target.port<=65535)):raise ValueError()
+        except ValueError:raise TestError('目标须为HTTPS域名或本机HTTP隧道地址，不能含路径、账号或查询参数')from None
+        self.upstream=upstream.rstrip('/');self.target=target
         config=json.loads(path.read_text(encoding='utf-8-sig'))
         self.secret=config.get('secret');catalog_path=pathlib.Path(config['catalog_path'])
         if not isinstance(self.secret,str)or len(self.secret)<32:raise TestError('本机签名配置无效')
@@ -151,9 +161,14 @@ class Settings:
         self.default=catalog['default_voice_id']
         if self.default not in self.voices or not 1<=len(self.voices)<=32:raise TestError('默认音色不可用')
         self.token=secrets.token_hex(32);self.jobs=Jobs();self.slots=threading.BoundedSemaphore(2)
-    def public(self):return {'endpoint':UPSTREAM,'voices':list(self.voices.values()),'default_voice_id':self.default,
+    # 原公开endpoint使用UPSTREAM；显示本进程实际固定的目标，避免国内对照误标为正式服务。--yyl
+    def public(self):return {'endpoint':self.upstream,'voices':list(self.voices.values()),'default_voice_id':self.default,
         'greeting':GREETING,'token':self.token,'max_characters':60000,'max_pcm_bytes':MAX_PCM,'protocol':'XYVOICE1'}
-    def connect(self):return http.client.HTTPSConnection(HOST,443,timeout=10,context=ssl.create_default_context())
+    # 原 HTTPSConnection(HOST,443,...)；远端仍强制校验证书，HTTP仅供本机SSH隧道。--yyl
+    def connect(self):
+        if self.target.scheme=='https':
+            return http.client.HTTPSConnection(self.target.hostname,self.target.port or 443,timeout=10,context=ssl.create_default_context())
+        return http.client.HTTPConnection(self.target.hostname,self.target.port or 80,timeout=10)
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version='HTTP/1.1'
@@ -200,7 +215,7 @@ class Handler(BaseHTTPRequestHandler):
                     if len(raw)>65536 or response.status!=200:raise TestError('线上服务暂未就绪',503)
                     data=json.loads(raw)
                     self.json(200,{'ready':data.get('ready')is True,'active':data.get('active'),'runtime':data.get('runtime',{}),
-                                  'endpoint':UPSTREAM,'elapsed_ms':round((time.perf_counter()-start)*1000,3)})
+                                  'endpoint':self.settings.upstream,'elapsed_ms':round((time.perf_counter()-start)*1000,3)})  # 原endpoint:UPSTREAM；展示实际目标。--yyl
                 finally:connection.close()
             else:self.json(404,{'error':'Not found'})
         except TestError as error:self.json(error.status,{'error':str(error)})
@@ -235,7 +250,8 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(('%x\r\n'%len(raw)).encode()+raw+b'\r\n');self.wfile.flush()
         try:
             self.send_headers(200,'application/x-ndjson; charset=utf-8');stream_started=True
-            emit('start',run_id=job.id,mode=job.mode,endpoint=UPSTREAM)
+            # 原 endpoint=UPSTREAM；国内/线上各进程固定自己的目标。--yyl
+            emit('start',run_id=job.id,mode=job.mode,endpoint=self.settings.upstream)
             connection=self.settings.connect()
             with job.lock:job.connection=connection
             if job.cancelled.is_set():raise Cancelled()
@@ -296,10 +312,13 @@ def make_server(settings,port):
     server=PCServer(('127.0.0.1',port),Handler);server.settings=settings;return server
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--config',type=pathlib.Path,required=True);parser.add_argument('--port',type=int,default=8797);args=parser.parse_args()
+    # 原启动参数仅--config/--port；保留默认正式目标，新增受启动者控制的--upstream。--yyl
+    parser=argparse.ArgumentParser();parser.add_argument('--config',type=pathlib.Path,required=True);parser.add_argument('--port',type=int,default=8797)
+    parser.add_argument('--upstream',default=UPSTREAM,help='HTTPS origin, or loopback HTTP for an SSH tunnel');args=parser.parse_args()
     if not 1024<=args.port<=65535:parser.error('Choose a port from 1024 to 65535')
-    settings=Settings(args.config);server=make_server(settings,args.port)
-    print(json.dumps({'listening':'http://127.0.0.1:'+str(args.port),'upstream':UPSTREAM,'voices':len(settings.voices),'signing_material_exposed':False}),flush=True)
+    # 原 Settings(args.config)及日志UPSTREAM；实际连接与日志共用同一启动配置。--yyl
+    settings=Settings(args.config,args.upstream);server=make_server(settings,args.port)
+    print(json.dumps({'listening':'http://127.0.0.1:'+str(args.port),'upstream':settings.upstream,'voices':len(settings.voices),'signing_material_exposed':False}),flush=True)
     try:server.serve_forever(poll_interval=.25)
     except KeyboardInterrupt:pass
     finally:

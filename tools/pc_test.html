@@ -72,7 +72,8 @@ textarea{display:block;width:100%;height:164px;min-height:110px;max-height:420px
     </div></section>
   </div>
   <section class="panel history"><div class="history-head"><h2 class="section-title">测试记录</h2><button class="quiet" id="exportBtn" type="button" disabled>导出记录</button></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>音色</th><th>方式</th><th>首段 / 秒</th><th>完整 / 秒</th><th>音频 / 秒</th><th>结果</th></tr></thead><tbody id="historyBody"><tr><td class="empty" colspan="7">完成一次测试后，这里会保留计时结果。</td></tr></tbody></table></div></section>
-  <footer class="footnote"><span>线上服务：<a href="https://voice.6xmu.com/health" target="_blank" rel="noreferrer">voice.6xmu.com</a>　·　本页仅在本机开放</span><span>计时包含网络传输；播放启动为浏览器调度估算，合成完成与播放结束分别判断。</span></footer>
+  <!-- 原页脚固定链接voice.6xmu.com；国内对照须显示启动时实际目标，避免混淆。--yyl -->
+  <footer class="footnote"><span>测试目标：<a id="serviceEndpoint" target="_blank" rel="noreferrer">正在读取配置</a>　·　本页仅在本机开放</span><span>计时包含网络传输；播放启动为浏览器调度估算，合成完成与播放结束分别判断。</span></footer>
 </main>
 <script>
 'use strict';
@@ -268,7 +269,8 @@ window.addEventListener('pagehide',()=>{const run=app.current;if(run?.active&&ap
 setInterval(()=>{const run=app.current;if(run)$('elapsed').textContent=((run.active?performance.now():run.endPerf||performance.now())-run.startPerf>0?((run.active?performance.now():run.endPerf||performance.now())-run.startPerf)/1000:0).toFixed(1);},100);
 Object.defineProperty(window,'voiceTest',{value:{snapshot:()=>({ready:app.ready,phase:$('phase').textContent,voices:app.config?.voices.length||0,current:app.current?{id:app.current.id,active:app.current.active,success:app.current.success,cancelled:app.current.cancelled,first_ms:app.current.firstMs,play_estimate_ms:app.current.playMs,complete_ms:app.current.completeMs,pcm_bytes:app.current.pcmBytes,cached:app.current.cached,error:app.current.error||null}:null,history:app.history,audio_context_state:app.context?.state||null})}});
 (async()=>{
-  try{const response=await fetch('/api/config',{cache:'no-store'});if(!response.ok)throw new Error('读取本机测试配置失败');app.config=await response.json();$('voice').replaceChildren();for(const item of app.config.voices){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;$('voice').append(option);}$('voice').value=app.config.default_voice_id;$('voiceLanguage').textContent='中文 · Mandarin';$('text').value=app.config.greeting;count();await checkHealth();}
+  // 原初始化只绑定音色/示例；现在同时绑定服务端返回的固定目标，网页不能修改目标。--yyl
+  try{const response=await fetch('/api/config',{cache:'no-store'});if(!response.ok)throw new Error('读取本机测试配置失败');app.config=await response.json();$('serviceEndpoint').href=app.config.endpoint+'/health';$('serviceEndpoint').textContent=app.config.endpoint;$('voice').replaceChildren();for(const item of app.config.voices){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;$('voice').append(option);}$('voice').value=app.config.default_voice_id;$('voiceLanguage').textContent='中文 · Mandarin';$('text').value=app.config.greeting;count();await checkHealth();}
   catch(error){phase(error.message,'failed');$('healthText').textContent='测试页尚未连接';}
   drawWave();refreshControls();
 })();
