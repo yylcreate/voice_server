@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小雅语音 · 线上测试台</title>
+<style>
+:root{color-scheme:light;--ink:#172640;--muted:#78859b;--blue:#3266e9;--line:#e4eaf3;--green:#13846b;--paper:#fff;--bg:#f4f7fc}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 90% 0%,#e8efff 0,transparent 42%),var(--bg);color:var(--ink);font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif}
+button,input,select,textarea{font:inherit}button,a,input,select,textarea{outline-offset:4px}button{cursor:pointer}button:disabled{cursor:default;opacity:.42}a{color:var(--blue)}button,select,textarea{transition:border-color .18s,box-shadow .18s}
+.shell{max-width:1392px;padding:28px 32px 24px;margin:auto}.header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:22px}
+.identity{display:flex;gap:14px;align-items:center}.logo{width:48px;height:48px;display:grid;place-items:center;background:#2559db;border-radius:15px;box-shadow:0 7px 16px #3266e925;color:white}.logo svg{width:28px}
+h1{font-size:23px;line-height:1.4;margin:0 0 3px;font-weight:680;letter-spacing:.3px}.subtitle{font-size:12px;color:var(--muted)}.header-tools{display:flex;align-items:center;gap:12px}.badge{background:#edf6f2;color:var(--green);border:1px solid #d7ebe2;border-radius:24px;padding:6px 12px;font-size:12px;white-space:nowrap;display:flex;align-items:center;gap:7px}
+.dot{width:7px;height:7px;display:inline-block;border-radius:50%;background:currentColor}.badge.off{background:#fff3ed;color:#bb6240;border-color:#f3dfd3}.quiet{border:1px solid var(--line);background:white;color:#50617c;padding:7px 12px;border-radius:9px;font-size:12px}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin-bottom:20px}.metric{padding:17px 20px 15px;border:1px solid var(--line);background:#fff;border-radius:16px;box-shadow:0 4px 14px #20375603;min-width:0}.metric.primary{background:linear-gradient(120deg,#edf3ff,#f8faff);border-color:#d4e1ff}.metric-name{font-size:12px;color:#697994;display:flex;align-items:center;gap:7px}.metric-name i{font-style:normal;color:#a0adc1}.metric-number{font:500 34px/1.3 "Cascadia Code","Consolas",monospace;letter-spacing:-1px;color:#1b3154;margin:6px 0 3px;white-space:nowrap}.primary .metric-number{color:#285dcc}.metric-number small{font:12px "Segoe UI",sans-serif;color:#8795ac;letter-spacing:0;margin-left:6px}.metric-caption{font-size:11px;color:#8c98aa}
+.workspace{display:grid;grid-template-columns:minmax(0,1.18fr) minmax(360px,.82fr);gap:20px;align-items:start}.panel{background:var(--paper);border:1px solid var(--line);border-radius:18px;box-shadow:0 8px 24px #18355a04}.panel-body{padding:21px 23px}.section-title{font-size:15px;font-weight:650;margin:0;display:flex;align-items:center;justify-content:space-between}.small-tag{font-weight:400;color:#8190a5;font-size:11px}
+.form-row{display:flex;align-items:center;justify-content:space-between;gap:15px;margin:17px 0 14px}.field-label{display:block;color:#697b95;font-size:12px;margin-bottom:7px}select{width:100%;padding:10px 13px;border:1px solid #dce4f1;border-radius:10px;background:#f9fbff;color:var(--ink);height:43px}.voice-field{flex:1;min-width:0}.voice-info{align-self:end;min-width:105px;background:#f2f6fc;border:1px solid #e6edf7;border-radius:10px;height:43px;display:flex;align-items:center;justify-content:center;color:#71809a;font-size:12px;padding:0 10px}
+.editor-top{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:17px 0 8px}.editor-top label{font-size:12px;color:#697b95}.samples{display:flex;gap:5px}.sample{font-size:11px;color:#55729e;border:0;background:transparent;padding:1px 6px}.sample:hover{color:var(--blue);background:#eef3ff;border-radius:5px}
+textarea{display:block;width:100%;height:164px;min-height:110px;max-height:420px;padding:14px 15px;resize:vertical;line-height:1.9;border:1px solid #dce4f1;border-radius:11px;background:#fbfcff;color:#263c5c;font-size:14px}textarea:focus,select:focus{border-color:#8baaf9;box-shadow:0 0 0 3px #3266e90b;outline:none}.editor-foot{display:flex;justify-content:space-between;font-size:11px;color:#98a2b3;margin:7px 1px 15px}.editor-foot span:first-child{max-width:85%}
+.controls{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.action{border-radius:10px;min-height:43px;padding:10px 17px;display:inline-flex;gap:7px;align-items:center;justify-content:center;font-size:13px;font-weight:600}.action svg{width:15px;height:15px;fill:currentColor}.start{background:#2f62df;color:white;border:1px solid #2f62df;box-shadow:0 5px 12px #3266e91c}.start:hover:not(:disabled){background:#2555cf}.repeat{border:1px solid #d9e3f2;background:white;color:#4b6389}.stop{border:1px solid #f1dedf;background:#fffafa;color:#b45862}.play-options{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:17px;padding-top:14px;border-top:1px solid #eff2f7;font-size:12px;color:#7c8a9f}.check{display:flex;align-items:center;gap:6px}.check input{accent-color:var(--blue);width:14px;height:14px}.tip{font-size:11px;color:#94a0b0}.input-help{font-size:11px;color:#8b98ac;line-height:1.8;margin-top:12px}
+.status-top{display:flex;justify-content:space-between;align-items:flex-start;margin-top:15px;gap:15px}.phase{color:#657795;font-size:13px;min-height:25px}.phase.failed{color:#bb5360}.phase.complete{color:var(--green)}.elapsed{font:500 26px/1.3 "Consolas",monospace;color:#354f75;white-space:nowrap}.elapsed small{font:11px "Segoe UI",sans-serif;color:#9aa5b6;margin-left:5px}
+.stage-list{list-style:none;margin:20px 0 17px;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stage-list li{position:relative;padding-top:23px;font-size:11px;color:#a1acbd}.stage-list li:before{content:"";position:absolute;top:4px;left:0;width:9px;height:9px;border:2px solid #dce3ee;background:#fff;border-radius:50%;z-index:1}.stage-list li:not(:last-child):after{content:"";position:absolute;left:9px;top:8px;right:-8px;height:1px;background:#e5eaf3}.stage-list li.done{color:#557698}.stage-list li.done:before{background:#547fe4;border-color:#547fe4}.stage-list li.active:before{border-color:#547fe4;box-shadow:0 0 0 4px #547fe417}.stage-list time{display:block;font:11px/1.8 "Consolas",monospace;color:#acb6c5;margin-top:2px}.stage-list li.done time{color:#6684b0}
+.wave-box{background:linear-gradient(180deg,#f7faff,#fafbfe);border:1px solid #e8eef8;border-radius:11px;padding:10px 12px 8px}.wave-top{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#90a0b8}.wave-live{color:#5e7cac}canvas{display:block;width:100%;height:54px}.segment-row{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0;min-height:23px}.segment{font-size:10px;background:#edf3ff;color:#5c7eb6;padding:3px 7px;border-radius:6px}.segment.reused{background:#eaf5ef;color:#3f8b6a}.summary-line{display:flex;justify-content:space-between;font-size:11px;color:#8f9cb0;margin-top:10px;gap:12px}.result-audio{border-top:1px solid #edf1f7;padding-top:13px;margin-top:15px}.result-audio[hidden]{display:none}.audio-heading{display:flex;justify-content:space-between;font-size:11px;color:#8191a9;margin-bottom:8px}.download{font-size:11px;text-decoration:none}audio{display:block;width:100%;height:33px}
+.enable-sound{margin-top:9px;background:#fff6e9;border:1px solid #f0dec1;border-radius:8px;padding:7px 10px;color:#a17a38;font-size:11px}.enable-sound[hidden]{display:none}
+.history{margin-top:20px;overflow:hidden}.history-head{display:flex;justify-content:space-between;align-items:center;padding:17px 23px 12px}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;text-align:left;font-size:12px;white-space:nowrap}th{font-size:11px;color:#93a0b4;font-weight:400;background:#fafbfe;border-bottom:1px solid #eef2f8;padding:9px 15px}td{padding:11px 15px;border-bottom:1px solid #f0f3f8;color:#6c7e99}th:first-child,td:first-child{padding-left:23px}th:last-child,td:last-child{padding-right:23px}tbody tr:last-child td{border-bottom:0}.mono{font-family:"Consolas",monospace;color:#45648d}.empty{text-align:center;color:#a6afbe;padding:23px}.result-tag{font-size:10px;border-radius:5px;padding:3px 6px;background:#eaf5f0;color:#41846b}.result-tag.failed{background:#fff0f1;color:#b76975}.result-tag.cancelled{background:#fff5e8;color:#a08759}.table-mode{color:#8d9db4;font-size:11px}.footnote{display:flex;gap:20px;justify-content:space-between;color:#99a6b9;font-size:10px;margin-top:15px;padding:0 2px}
+@media(max-width:1000px){.shell{padding:20px}.workspace{grid-template-columns:minmax(0,1fr) minmax(310px,.8fr)}.panel-body{padding:18px}.metric{padding:15px}.metric-number{font-size:28px}.metrics{gap:10px}.tip{font-size:10px}.header-tools{gap:6px}}
+@media(max-width:760px){.workspace{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}.header{align-items:flex-start}.header-tools{flex-direction:column;align-items:flex-end}.badge{font-size:10px}.header h1{font-size:20px}.subtitle{font-size:10px}.shell{padding:16px}.logo{width:41px;height:41px}.footnote{flex-direction:column;gap:4px}.controls{gap:7px}.action{padding:9px 13px}.voice-info{min-width:82px}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="header">
+    <div class="identity"><div class="logo" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 14v4M10.5 9v14M16 5v22M21.5 10v12M27 14v4"/></svg></div><div><h1>小雅语音测试台</h1><div class="subtitle">ZipVoice · 直接连接线上语音服务</div></div></div>
+    <div class="header-tools"><div class="badge off" id="healthBadge" role="status"><span class="dot"></span><span id="healthText">正在检测线上服务</span></div><button class="quiet" id="healthBtn" type="button">检测连接</button></div>
+  </header>
+  <section class="metrics" aria-label="本次测试耗时">
+    <div class="metric primary"><div class="metric-name">首段到达 <i title="从点击开始，到本页收到第一包PCM音频。">ⓘ</i></div><div class="metric-number" id="firstMetric">—<small>秒</small></div><div class="metric-caption">看多久能拿到第一段声音</div></div>
+    <div class="metric"><div class="metric-name">播放启动 <i title="按浏览器音频输出时间戳估算，非扬声器实测；可能含音频开头的静音。">ⓘ</i></div><div class="metric-number" id="playMetric">—<small>秒</small></div><div class="metric-caption">浏览器开始输出音频的估算值</div></div>
+    <div class="metric"><div class="metric-name">完整返回 <i title="收齐全部PCM和完成帧，并校验连接结束。">ⓘ</i></div><div class="metric-number" id="completeMetric">—<small>秒</small></div><div class="metric-caption">完整生成与传输需要的时间</div></div>
+    <div class="metric"><div class="metric-name">音频时长</div><div class="metric-number" id="durationMetric">—<small>秒</small></div><div class="metric-caption" id="durationCaption">24 kHz · 单声道</div></div>
+  </section>
+  <div class="workspace">
+    <section class="panel"><div class="panel-body">
+      <h2 class="section-title">测试输入 <span class="small-tag">线上实时合成</span></h2>
+      <form id="testForm">
+        <div class="form-row"><div class="voice-field"><label class="field-label" for="voice">选择音色</label><select id="voice" disabled><option>正在读取音色…</option></select></div><div class="voice-info" id="voiceLanguage">12 个预设音色</div></div>
+        <div class="editor-top"><label for="text">输入要合成的文字</label><div class="samples"><button type="button" class="sample" id="shortBtn">简短测试</button><button type="button" class="sample" id="greetingBtn">完整示例</button></div></div>
+        <textarea id="text" maxlength="60000" spellcheck="false" placeholder="输入一段文字，直接测试线上语音生成速度。"></textarea>
+        <div class="editor-foot"><span>仅测试文字转语音，不经过聊天模型</span><span id="charCount">0 字</span></div>
+        <div class="controls">
+          <button id="startBtn" class="action start" type="submit" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.2c0-.5.6-.8 1-.5l8.3 5.5c.5.3.5 1 0 1.3L5 14c-.4.3-1 .0-1-.5z"/></svg>开始测试</button>
+          <button id="repeatBtn" class="action repeat" type="button" disabled>同文复测</button>
+          <button id="stopBtn" class="action stop" type="button" disabled>停止</button>
+        </div>
+        <div class="play-options"><label class="check"><input id="autoPlay" type="checkbox" checked>边生成边播放</label><span class="tip">Ctrl + Enter 开始测试</span></div>
+        <div class="input-help">“开始测试”不复用上一次测试的音频；“同文复测”尝试复用上次结果，实际复用情况会单独显示。</div>
+      </form>
+    </div></section>
+    <section class="panel"><div class="panel-body">
+      <h2 class="section-title">本次进度 <span class="small-tag" id="runMode">等待开始</span></h2>
+      <div class="status-top"><div id="phase" class="phase" role="status" aria-live="polite">选好声音和文字，即可开始测试</div><div class="elapsed"><span id="elapsed">0.0</span><small>秒</small></div></div>
+      <ol class="stage-list">
+        <li id="stageConnected">线上服务响应<time id="connectedTime">—</time></li>
+        <li id="stageFirst">首段音频到达<time id="firstTime">—</time></li>
+        <li id="stageDone">完整音频返回<time id="doneTime">—</time></li>
+      </ol>
+      <div class="wave-box"><div class="wave-top"><span id="waveTitle">音频波形</span><span class="wave-live" id="received">等待音频</span></div><canvas id="wave" aria-label="收到的真实PCM音频幅度"></canvas></div>
+      <div class="segment-row" id="segments" aria-label="音频分段"></div>
+      <div class="summary-line"><span id="cacheSummary">复用情况将在返回后显示</span><span id="gapSummary">分段等待 —</span></div>
+      <button id="enableSound" class="enable-sound" type="button" hidden>浏览器暂停了声音，点此启用播放</button>
+      <div id="resultAudio" class="result-audio" hidden><div class="audio-heading"><span>本次完整音频 · 可本地重播</span><a id="downloadWav" class="download">下载 WAV</a></div><audio id="audio" controls preload="metadata"></audio></div>
+    </div></section>
+  </div>
+  <section class="panel history"><div class="history-head"><h2 class="section-title">测试记录</h2><button class="quiet" id="exportBtn" type="button" disabled>导出记录</button></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>音色</th><th>方式</th><th>首段 / 秒</th><th>完整 / 秒</th><th>音频 / 秒</th><th>结果</th></tr></thead><tbody id="historyBody"><tr><td class="empty" colspan="7">完成一次测试后，这里会保留计时结果。</td></tr></tbody></table></div></section>
+  <footer class="footnote"><span>线上服务：<a href="https://voice.6xmu.com/health" target="_blank" rel="noreferrer">voice.6xmu.com</a>　·　本页仅在本机开放</span><span>计时包含网络传输；播放启动为浏览器调度估算，合成完成与播放结束分别判断。</span></footer>
+</main>
+<script>
+'use strict';
+// 只请求本机签名代理；不接触服务密钥或使用预录样音。--yyl
+const $ = id => document.getElementById(id);
+const SHORT_ZH='你好！我是小雅，你的精密制造智能工作伙伴。';
+const SHORT_EN='Hello! I am Xiaoya, your intelligent manufacturing partner.';
+const FULL_EN='Hello! I am Xiaoya, your intelligent manufacturing partner. I can help you check work orders and track production progress. How can I help you today?';
+const app={config:null,ready:false,healthBusy:false,current:null,previous:null,history:[],context:null,gain:null,nodes:new Set(),nextAudioAt:0,wave:[],blobUrl:null};
+const seconds=ms=>ms==null?'—':(ms/1000).toFixed(2);
+const metric=(id,ms,estimate=false)=>{$(id).replaceChildren(document.createTextNode(ms==null?'—':(estimate?'≈ ':'')+seconds(ms)));const unit=document.createElement('small');unit.textContent='秒';$(id).append(unit);};
+const phase=(text,kind='')=>{$('phase').textContent=text;$('phase').className='phase '+kind;};
+function voice(){return app.config?.voices.find(v=>v.id===$('voice').value);}
+function count(){ $('charCount').textContent=Array.from($('text').value).length.toLocaleString()+' 字';refreshControls(); }
+function refreshControls(){
+  const running=!!app.current?.active;
+  $('startBtn').disabled=!app.config||!app.ready||running||!$('text').value.trim();
+  $('repeatBtn').disabled=running||!app.ready||!app.previous||app.previous.text!==$('text').value||app.previous.voice!==$('voice').value;
+  $('stopBtn').disabled=!running&&app.nodes.size===0&&!($('audio').currentTime>0&&!$('audio').paused);
+  ['voice','text','shortBtn','greetingBtn','autoPlay'].forEach(id=>$(id).disabled=running||!app.config);
+  $('exportBtn').disabled=app.history.length===0;
+}
+async function checkHealth(){
+  if(app.healthBusy)return;app.healthBusy=true;$('healthBtn').disabled=true;
+  try{
+    const response=await fetch('/api/health',{cache:'no-store'});const data=await response.json();
+    if(!response.ok||!data.ready)throw new Error(data.error||'线上服务暂未就绪');
+    app.ready=true;$('healthBadge').className='badge';
+    $('healthText').textContent='线上就绪 · 活动 '+data.active+'/'+(data.runtime.max_streams||2);
+    $('healthBadge').title='检测耗时 '+seconds(data.elapsed_ms)+' 秒；推理线程 '+data.runtime.inference_threads+'。活动请求数是检测时快照。';
+  }catch(error){app.ready=false;$('healthBadge').className='badge off';$('healthText').textContent='连接失败，点击检测';$('healthBadge').title=error.message;}
+  finally{app.healthBusy=false;$('healthBtn').disabled=false;refreshControls();}
+}
+function drawWave(){
+  const canvas=$('wave'),ratio=window.devicePixelRatio||1,w=Math.max(100,canvas.clientWidth),h=54;
+  canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);
+  const ctx=canvas.getContext('2d');ctx.scale(ratio,ratio);ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle='#e3eaf6';ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
+  if(!app.wave.length)return;
+  const values=app.wave.slice(-80),step=w/80;
+  values.forEach((v,i)=>{const height=Math.min(h-6,Math.max(2,v*130));ctx.fillStyle=i===values.length-1?'#3d73e9':'#8caef2';ctx.fillRect(i*step+1,(h-height)/2,Math.max(1,step-2),height);});
+}
+function stopSound(){
+  for(const node of app.nodes){node.onended=null;try{node.stop();node.disconnect();}catch(_){}}
+  app.nodes.clear();app.nextAudioAt=0;
+  $('audio').pause();$('enableSound').hidden=true;refreshControls();
+}
+async function enableAudio(){
+  if(!app.context){
+    const AudioClass=window.AudioContext||window.webkitAudioContext;
+    if(!AudioClass)throw new Error('当前浏览器不支持流式音频，可在生成完成后重播或下载');
+    app.context=new AudioClass({latencyHint:'interactive'});app.gain=app.context.createGain();app.gain.gain.value=1;app.gain.connect(app.context.destination);
+    app.context.addEventListener('statechange',()=>{
+      const run=app.current;
+      $('enableSound').hidden=app.context.state==='running'||!run?.auto;
+      if(app.context.state==='running'&&run&&run.firstAudioAt!=null&&run.playMs==null)recordPlayStart(run,run.firstAudioAt);
+    });
+  }
+  await app.context.resume();$('enableSound').hidden=app.context.state==='running';
+}
+function recordPlayStart(run,start){
+  if(run!==app.current||run.playMs!=null||app.context.state!=='running')return;
+  let estimate;
+  const stamp=app.context.getOutputTimestamp?.();
+  if(stamp&&stamp.performanceTime>0)estimate=stamp.performanceTime+(start-stamp.contextTime)*1000-run.startPerf;
+  else estimate=performance.now()-run.startPerf+(start-app.context.currentTime+(app.context.baseLatency||0))*1000;
+  run.playMs=Math.max(0,estimate);metric('playMetric',run.playMs,true);
+}
+function queueAudio(run,bytes){
+  const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),samples=new Float32Array(bytes.length/2);let square=0;
+  for(let i=0;i<samples.length;i++){const v=view.getInt16(i*2,true)/32768;samples[i]=v;square+=v*v;}
+  app.wave.push(Math.sqrt(square/samples.length));if(app.wave.length>500)app.wave.splice(0,200);drawWave();
+  if(!run.auto||!app.context||!app.gain)return;
+  const ctx=app.context,now=ctx.currentTime;
+  if(run.audioPieces>0&&now>app.nextAudioAt+.025&&ctx.state==='running'){run.gapMs+=(now-app.nextAudioAt)*1000;$('gapSummary').textContent='分段等待 '+seconds(run.gapMs)+' 秒';}
+  const start=Math.max(now+.055,app.nextAudioAt),buffer=ctx.createBuffer(1,samples.length,24000);buffer.copyToChannel(samples,0);
+  const source=ctx.createBufferSource();source.buffer=buffer;source.connect(app.gain);app.nodes.add(source);app.nextAudioAt=start+buffer.duration;run.audioPieces++;
+  if(run.firstAudioAt==null){run.firstAudioAt=start;recordPlayStart(run,start);}
+  source.onended=()=>{
+    app.nodes.delete(source);source.disconnect();
+    if(app.current!==run||run.cancelled)return;
+    if(app.nodes.size===0){
+      if(run.active)phase('正在等待下一段音频…');
+      else if(run.success)phase('合成完成，播放已结束','complete');
+    }
+    refreshControls();
+  };
+  source.start(start);
+}
+function setStage(id,timeId,ms,active=false){$(id).className=ms!=null?'done':active?'active':'';$(timeId).textContent=ms!=null?seconds(ms)+' 秒':'—';}
+function resetView(){
+  $('elapsed').textContent='0.0';
+  stopSound();if(app.blobUrl){URL.revokeObjectURL(app.blobUrl);app.blobUrl=null;}
+  $('audio').removeAttribute('src');$('audio').load();$('resultAudio').hidden=true;
+  app.wave=[];drawWave();$('segments').replaceChildren();$('received').textContent='等待音频';$('cacheSummary').textContent='复用情况将在返回后显示';$('gapSummary').textContent='分段等待 —';
+  $('durationCaption').textContent='24 kHz · 单声道';$('waveTitle').textContent='音频波形';
+  ['firstMetric','playMetric','completeMetric','durationMetric'].forEach(id=>metric(id,null));
+  setStage('stageConnected','connectedTime',null,true);setStage('stageFirst','firstTime',null);setStage('stageDone','doneTime',null);
+}
+function makeWav(parts,length){
+  const data=new Uint8Array(44+length),dv=new DataView(data.buffer),text=(offset,s)=>{for(let i=0;i<s.length;i++)data[offset+i]=s.charCodeAt(i);};
+  text(0,'RIFF');dv.setUint32(4,36+length,true);text(8,'WAVE');text(12,'fmt ');dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,1,true);dv.setUint32(24,24000,true);dv.setUint32(28,48000,true);dv.setUint16(32,2,true);dv.setUint16(34,16,true);text(36,'data');dv.setUint32(40,length,true);
+  let offset=44;for(const part of parts){data.set(part,offset);offset+=part.length;}return new Blob([data],{type:'audio/wav'});
+}
+function recordHistory(run){
+  if(run.logged)return;run.logged=true;
+  const row={time:new Date(run.wallTime).toISOString(),voice_id:run.voice,voice_name:run.voiceName,mode:run.mode,characters:Array.from(run.text).length,
+    result:run.success?'complete':run.cancelled?'cancelled':'failed',first_pcm_ms:run.firstMs,playback_start_estimate_ms:run.playMs,complete_ms:run.completeMs,audio_seconds:run.pcmBytes/48000,cached:run.cached,pcm_sha256:run.result?.pcm_sha256||null,error:run.error||null};
+  app.history.unshift(row);if(app.history.length>12)app.history.pop();
+  $('historyBody').replaceChildren();
+  for(const entry of app.history){
+    const tr=document.createElement('tr'),time=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Singapore',hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date(entry.time));
+    const cells=[time,entry.voice_name,entry.mode==='fresh'?'新合成':'同文复测',seconds(entry.first_pcm_ms),seconds(entry.complete_ms),entry.audio_seconds?entry.audio_seconds.toFixed(2):'—'];
+    cells.forEach((value,index)=>{const td=document.createElement('td');td.textContent=value;if(index>=3)td.className='mono';if(index===2)td.className='table-mode';tr.append(td);});
+    const td=document.createElement('td'),tag=document.createElement('span');tag.className='result-tag '+(entry.result==='complete'?'':entry.result);
+    tag.textContent=entry.result==='complete'?(entry.cached.some(Boolean)?entry.cached.filter(Boolean).length+'/'+entry.cached.length+' 段复用':'新生成'):entry.result==='cancelled'?'已停止':'失败';td.append(tag);tr.append(td);$('historyBody').append(tr);
+  }
+}
+function onEvent(run,message){
+  if(app.current!==run||run.cancelled)return;
+  if(message.type==='start'){phase('已发起请求，正在连接线上服务…');return;}
+  if(message.type==='connected'){run.headersMs=message.at_ms;setStage('stageConnected','connectedTime',message.at_ms);setStage('stageFirst','firstTime',null,true);phase('线上已响应，正在等待第一段音频…');checkHealth();return;}
+  if(message.type==='metadata'){if(message.rate!==24000||message.channels!==1||message.format!=='pcm_s16le'||message.voice_id!==run.voice)throw new Error('音频格式不匹配');run.total=message.total;return;}
+  if(message.type==='segment'){
+    run.cached.push(message.cached);const chip=document.createElement('span');chip.className='segment'+(message.cached?' reused':'');chip.textContent='第'+(message.segment+1)+'段 · '+(message.cached?'已复用':'新生成');$('segments').append(chip);
+    phase('正在接收第 '+(message.segment+1)+' / '+message.total+' 段音频');return;
+  }
+  if(message.type==='pcm'){
+    const raw=atob(message.audio),bytes=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);
+    if(bytes.length%2||run.pcmBytes+bytes.length>app.config.max_pcm_bytes)throw new Error('返回音频长度无效或过大');
+    if(run.firstMs==null){run.firstMs=performance.now()-run.startPerf;metric('firstMetric',run.firstMs);setStage('stageFirst','firstTime',run.firstMs);setStage('stageDone','doneTime',null,true);}
+    run.pcm.push(bytes);run.pcmBytes+=bytes.length;queueAudio(run,bytes);metric('durationMetric',run.pcmBytes/48);
+    $('received').textContent=(run.pcmBytes/1024).toFixed(1)+' KiB 已接收';return;
+  }
+  if(message.type==='done'){run.result=message;return;} // 完整耗时在连接结束并校验后确定。--yyl
+  if(message.type==='error')throw new Error(message.message||'线上语音生成失败');
+  if(message.type==='cancelled')throw new DOMException('测试已停止','AbortError');
+  throw new Error('未知测试事件');
+}
+async function startTest(mode){
+  if(!app.config||app.current?.active)return;
+  const text=$('text').value,selected=voice();if(!text.trim()||!selected)return;
+  if(mode==='repeat'&&(!app.previous||app.previous.text!==text||app.previous.voice!==selected.id))return;
+  resetView();
+  const run={id:crypto.randomUUID().replaceAll('-',''),voice:selected.id,voiceName:selected.name,text,mode,auto:$('autoPlay').checked,wallTime:Date.now(),startPerf:performance.now(),active:true,cancelled:false,success:false,pcm:[],pcmBytes:0,cached:[],firstMs:null,playMs:null,completeMs:null,audioPieces:0,firstAudioAt:null,gapMs:0,controller:new AbortController(),total:0,result:null};
+  app.current=run;$('runMode').textContent=mode==='fresh'?'本次 · 新合成':'本次 · 同文复测';phase('正在连接线上语音服务…');refreshControls();
+  try{
+    // 声音解锁与网络请求并行，浏览器权限等待不阻塞线上测时。--yyl
+    if(run.auto){enableAudio().catch(error=>{$('enableSound').hidden=false;$('enableSound').textContent=error.message;});}
+    if(run.cancelled)return;
+    const response=await fetch('/api/synthesize',{method:'POST',headers:{'Content-Type':'application/json','X-Voice-Test-Token':app.config.token},signal:run.controller.signal,
+      body:JSON.stringify({run_id:run.id,text,voice_id:run.voice,mode,previous_id:mode==='repeat'?app.previous.id:null})});
+    if(!response.ok){const error=await response.json();throw new Error(error.error||'请求失败');}
+    const reader=response.body.getReader(),decoder=new TextDecoder('utf-8',{fatal:true});let pending='';
+    while(true){
+      const item=await reader.read();if(item.done)break;pending+=decoder.decode(item.value,{stream:true});
+      if(pending.length>6000000)throw new Error('音频消息超过限制');
+      let at;while((at=pending.indexOf('\n'))>=0){const line=pending.slice(0,at);pending=pending.slice(at+1);if(line)onEvent(run,JSON.parse(line));}
+    }
+    pending+=decoder.decode();if(pending.trim()||!run.result||run.result.pcm_bytes!==run.pcmBytes||run.result.segments!==run.cached.length)throw new Error('音频未完整返回');
+    if(run.cancelled||app.current!==run)return;
+    run.active=false;run.success=true;run.endPerf=performance.now();run.completeMs=run.endPerf-run.startPerf;metric('completeMetric',run.completeMs);setStage('stageDone','doneTime',run.completeMs);
+    const reused=run.cached.filter(Boolean).length;$('cacheSummary').textContent=reused?reused+'/'+run.cached.length+' 段复用':'全部 '+run.cached.length+' 段新生成';$('gapSummary').textContent='分段等待 '+seconds(run.gapMs)+' 秒';
+    $('durationCaption').textContent='返回耗时 / 音频时长 = '+(run.result.complete_ms/1000/run.result.audio_seconds).toFixed(2)+' 倍';
+    app.blobUrl=URL.createObjectURL(makeWav(run.pcm,run.pcmBytes));$('audio').src=app.blobUrl;$('downloadWav').href=app.blobUrl;$('downloadWav').download='xiaoya-'+run.voice+'-'+Date.now()+'.wav';$('resultAudio').hidden=false;
+    app.previous={id:run.id,voice:run.voice,text:run.text};phase(app.nodes.size?'合成完成，正在播放剩余音频':'合成完成，完整音频可重播','complete');recordHistory(run);
+  }catch(error){
+    if(app.current===run&&!run.cancelled){run.active=false;run.endPerf=performance.now();run.error=error.message;stopSound();phase(error.message,'failed');recordHistory(run);}
+    fetch('/api/cancel',{method:'POST',headers:{'Content-Type':'application/json','X-Voice-Test-Token':app.config.token},body:JSON.stringify({run_id:run.id})}).catch(()=>{});
+  }finally{
+    if(app.current===run){run.active=false;run.endPerf=run.endPerf||performance.now();refreshControls();checkHealth();}
+  }
+}
+function stopTest(){
+  const run=app.current;stopSound();if(!run)return;
+  if(!run.active){phase('合成已完成，播放已停止','complete');return;}
+  run.cancelled=true;run.active=false;run.endPerf=performance.now();run.controller.abort();
+  fetch('/api/cancel',{method:'POST',headers:{'Content-Type':'application/json','X-Voice-Test-Token':app.config.token},body:JSON.stringify({run_id:run.id})}).catch(()=>{});
+  phase('已停止接收音频；正在计算的段可能稍后释放资源');recordHistory(run);refreshControls();checkHealth();
+}
+function chooseSample(full){$('text').value=voice()?.language==='en'?(full?FULL_EN:SHORT_EN):(full?app.config.greeting:SHORT_ZH);count();}
+$('testForm').addEventListener('submit',event=>{event.preventDefault();startTest('fresh');});
+$('repeatBtn').addEventListener('click',()=>startTest('repeat'));$('stopBtn').addEventListener('click',stopTest);
+$('healthBtn').addEventListener('click',checkHealth);$('shortBtn').addEventListener('click',()=>chooseSample(false));$('greetingBtn').addEventListener('click',()=>chooseSample(true));
+$('text').addEventListener('input',count);$('text').addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();if(!$('startBtn').disabled)startTest('fresh');}});
+$('voice').addEventListener('change',()=>{const known=[$('text').value,SHORT_ZH,SHORT_EN,FULL_EN,app.config.greeting];const original=$('text').value;$('voiceLanguage').textContent=voice().language==='en'?'英语 · English':'中文 · Mandarin';if(known.slice(1).includes(original))chooseSample(original===app.config.greeting||original===FULL_EN);refreshControls();});
+$('enableSound').addEventListener('click',async()=>{try{await enableAudio();}catch(error){phase(error.message,'failed');}});
+$('audio').addEventListener('play',()=>{for(const node of app.nodes){node.onended=null;try{node.stop();node.disconnect();}catch(_){}}app.nodes.clear();refreshControls();});
+$('audio').addEventListener('pause',refreshControls);$('audio').addEventListener('ended',refreshControls);
+$('exportBtn').addEventListener('click',()=>{const url=URL.createObjectURL(new Blob([JSON.stringify({endpoint:app.config.endpoint,records:app.history},null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='xiaoya-voice-test-'+Date.now()+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+window.addEventListener('resize',drawWave);
+window.addEventListener('pagehide',()=>{const run=app.current;if(run?.active&&app.config){run.controller.abort();fetch('/api/cancel',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json','X-Voice-Test-Token':app.config.token},body:JSON.stringify({run_id:run.id})}).catch(()=>{});}}); // 关闭页面也释放本次连接。--yyl
+setInterval(()=>{const run=app.current;if(run)$('elapsed').textContent=((run.active?performance.now():run.endPerf||performance.now())-run.startPerf>0?((run.active?performance.now():run.endPerf||performance.now())-run.startPerf)/1000:0).toFixed(1);},100);
+Object.defineProperty(window,'voiceTest',{value:{snapshot:()=>({ready:app.ready,phase:$('phase').textContent,voices:app.config?.voices.length||0,current:app.current?{id:app.current.id,active:app.current.active,success:app.current.success,cancelled:app.current.cancelled,first_ms:app.current.firstMs,play_estimate_ms:app.current.playMs,complete_ms:app.current.completeMs,pcm_bytes:app.current.pcmBytes,cached:app.current.cached,error:app.current.error||null}:null,history:app.history,audio_context_state:app.context?.state||null})}});
+(async()=>{
+  try{const response=await fetch('/api/config',{cache:'no-store'});if(!response.ok)throw new Error('读取本机测试配置失败');app.config=await response.json();$('voice').replaceChildren();for(const item of app.config.voices){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;$('voice').append(option);}$('voice').value=app.config.default_voice_id;$('voiceLanguage').textContent='中文 · Mandarin';$('text').value=app.config.greeting;count();await checkHealth();}
+  catch(error){phase(error.message,'failed');$('healthText').textContent='测试页尚未连接';}
+  drawWave();refreshControls();
+})();
+</script>
+</body>
+</html>
