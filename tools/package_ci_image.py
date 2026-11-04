@@ -11,7 +11,8 @@ with archive.open('wb')as output:
     finally:
         producer.stdout.close()
     if producer.wait()!=0:raise RuntimeError('Docker image export failed')
-image=json.loads(subprocess.check_output(['docker','image','inspect',tag],text=True))[0]
+# 原check_output(...,text=True)；沿用Python3.6也支持的文本输出参数。--yyl
+image=json.loads(subprocess.check_output(['docker','image','inspect',tag],universal_newlines=True))[0]
 assert image['Config']['Labels']['org.opencontainers.image.revision']==commit
 digest=hashlib.sha256()
 with archive.open('rb')as source:

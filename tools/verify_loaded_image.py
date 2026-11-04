@@ -6,7 +6,8 @@ parser=argparse.ArgumentParser();parser.add_argument('--manifest',type=Path,requ
 manifest=json.loads(args.manifest.read_text(encoding='utf-8'))
 commit=manifest['commit']
 assert re.fullmatch('[a-f0-9]{40}',commit)and manifest['image_tag']=='xiaoya-voice:'+commit
-image=json.loads(subprocess.check_output(['docker','image','inspect',manifest['image_tag']],text=True))[0]
+# 原check_output(...,text=True)需Python3.7；CentOS7的3.6改用等价旧参数。--yyl
+image=json.loads(subprocess.check_output(['docker','image','inspect',manifest['image_tag']],universal_newlines=True))[0]
 assert image['RootFS']['Layers']==manifest['rootfs_diff_ids'],'Loaded image filesystem mismatch'
 assert manifest['runtime_config']and all(image['Config'].get(key)==value for key,value in manifest['runtime_config'].items()),'Loaded image runtime configuration mismatch'
 assert image['Os']==manifest['os']and image['Architecture']==manifest['architecture'],'Loaded image platform mismatch'

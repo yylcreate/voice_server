@@ -60,7 +60,7 @@ docker version应同时显示Client和Server，docker compose version应正常�
 继续执行：
 
 ~~~bash
-yum install -y git python3 curl tar gzip util-linux
+yum --disablerepo='centos-sclo-*' install -y git python3 curl tar gzip util-linux
 python3 --version
 command -v git python3 curl tar gzip flock
 install -d -m 700 /root/xiaoya-voice-transfer
@@ -68,7 +68,7 @@ install -d -m 700 /root/xiaoya-voice-transfer
 
 宿主Python3只用于标准库管理脚本。模型及后面的签名测速使用镜像内Python3.12，不替换系统Python，不在宝塔Python项目管理器启动第二份模型。
 
-若yum提示镜像源失效，保留错误后按当前腾讯云CentOS7镜像源处理，不直接覆盖全机yum仓库。已装工具不必重复安装。
+上述参数只对这次安装临时跳过已失效的SCL源，不修改仓库文件。依赖已安装时可直接运行安装脚本。其他源仍失败时保留错误再处理，不覆盖全机yum仓库。
 
 ## 4. 从原线上机器导出迁移文件
 
@@ -149,12 +149,15 @@ test ! -e /var/lib/xiaoya-voice/models/zipvoice
 git clone /root/xiaoya-voice-transfer/source.bundle /opt/xiaoya-voice
 voice_commit=$(cat /root/xiaoya-voice-transfer/commit.txt)
 [[ "$voice_commit" =~ ^[a-f0-9]{40}$ ]]
-git -C /opt/xiaoya-voice checkout --detach "$voice_commit"
+# CentOS7自带Git1.8不支持git -C，先进入目录再切换版本。--yyl
+cd /opt/xiaoya-voice
+git checkout --detach "$voice_commit"
 
 docker load --input /root/xiaoya-voice-transfer/image.tar.gz
 cd /opt/xiaoya-voice
-python3 tools/verify_loaded_image.py \
-  --manifest /root/xiaoya-voice-transfer/image-manifest.json
+# 运行镜像对应的旧源码使用text=True；只在内存转换为Python3.6等价参数，不改受保护源码。--yyl
+sed 's/text=True/universal_newlines=True/g' tools/verify_loaded_image.py \
+  | python3 - --manifest /root/xiaoya-voice-transfer/image-manifest.json
 
 # 先确认CentOS7当前内核/Docker能运行镜像，不加载模型。--yyl
 docker run --rm --network none --read-only --cpus 1 --memory 512m \
@@ -338,6 +341,8 @@ Set-Location 'D:\yl\saiadmin-server\voice_server'
 | 现象 | 处理 |
 | --- | --- |
 | source.bundle或其他文件SHA失败 | 重新传对应文件，先不启动 |
+| Unknown option: -C | CentOS7的Git1.8不支持该参数，改为cd目录后git checkout；已克隆目录保留 |
+| Python报unexpected keyword argument text | 使用第6步的兼容检查命令，不改系统Python或跳过镜像校验 |
 | 镜像运行探针退出、Illegal instruction/系统调用错误 | 核对CPU指令、内核/Docker日志，不以关闭安全隔离绕过 |
 | 容器Permission denied | 核对root:10001、目录750/文件640；SELinux开启时按下面局部标签处理 |
 | 镜像Healthy前503 | 等首次模型预热；超时查看容器日志 |
