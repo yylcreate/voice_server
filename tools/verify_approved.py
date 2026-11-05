@@ -55,7 +55,8 @@ def main():
     owner = 1800000000 + uuid.uuid4().int % 100000000
     preview = f'/v1/preview?user_id={owner}'
     body = json.dumps({'voice_id': voices[0]['id']}).encode()
-    assert fetch(endpoint, preview, body)[0] == 403
+    unsigned_status, unsigned_kind, _ = fetch(endpoint, preview, body)
+    assert unsigned_status == 403, ('unsigned preview', unsigned_status, unsigned_kind)
     for row in voices:
         body = json.dumps({'voice_id': row['id']}).encode()
         headers = signature(secret, preview, body, 'application/json')

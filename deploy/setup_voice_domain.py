@@ -15,6 +15,16 @@ def inspect(name):return json.loads(command('docker','inspect',name))[0]
 def health(url,host=None):
     request=urllib.request.Request(url,headers={'User-Agent':'Xiaoya-Voice-Deployment-Probe/1.0',**({'Host':host}if host else {})})
     with urllib.request.urlopen(request,timeout=5)as response:return json.load(response)
+def signed_routes_reachable(base,host=None):
+    headers={'User-Agent':'Xiaoya-Voice-Deployment-Probe/1.0',**({'Host':host}if host else {})}
+    for path in ('/v1/preview','/v1/transcribe'):
+        request=urllib.request.Request(base+path,data=b'{}',headers=headers)
+        try:
+            with urllib.request.urlopen(request,timeout=5):
+                raise ValueError(path+' accepted an unsigned request')
+        except urllib.error.HTTPError as error:
+            with error:
+                assert error.code==403 and json.load(error)=={'error':'invalid service signature'}, (path,error.code)
 def replace(path,data,mode=0o644):
     handle,name=tempfile.mkstemp(prefix='.xiaoya-voice-domain-',dir=path.parent)
     try:
@@ -70,6 +80,8 @@ def main():
                     public=health('https://'+HOST+'/health')
                     assert local['ready'] and public['ready']
                     origin_tls()
+                    signed_routes_reachable('http://127.0.0.1',HOST)
+                    signed_routes_reachable('https://'+HOST)
                     break
                 except Exception as error:last_error=error;time.sleep(.3)
             else:raise RuntimeError('Dedicated domain readiness did not converge')from last_error
