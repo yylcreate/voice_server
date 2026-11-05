@@ -395,7 +395,7 @@ class Handler(BaseHTTPRequestHandler):
 class PCServer(ThreadingHTTPServer):
     daemon_threads=True
     allow_reuse_address=True
-    request_queue_size=64
+    request_queue_size=256
 
 def make_server(settings,port):
     server=PCServer(('127.0.0.1',port),Handler);server.settings=settings;return server
