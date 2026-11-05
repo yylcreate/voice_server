@@ -28,7 +28,7 @@ COPY requirements.txt ./
 RUN python -m pip install --disable-pip-version-check -r requirements.txt \
  && python -c "import fastapi, numpy, onnxruntime, sherpa_onnx"
 
-COPY server.py voice_engine.py voice_profiles.py voice_loudness.py runtime_profiles.py ./
+COPY server.py voice_engine.py voice_profiles.py voice_loudness.py voice_text.py voice_asr.py voice_previews.py runtime_profiles.py ./
 COPY deploy/check_ready.py deploy/check_target.py ./deploy/
 
 USER 10001:10001

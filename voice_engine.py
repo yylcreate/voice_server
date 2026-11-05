@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import threading
 import time
 import wave
@@ -13,8 +12,9 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 import numpy as np
-from voice_profiles import load_profiles
+from voice_profiles import MODEL_WEIGHTS, load_profiles
 from voice_loudness import LoudnessNormalizer
+from voice_text import breakpoints
 from runtime_profiles import resource_config
 
 
@@ -26,7 +26,9 @@ def segments(text: str, limit: int = 40, language: str = 'zh', mode: str = 'defa
         maximum = min((112 if not result else 160)if language=='en'else((48 if not result else 64)if chat else(28 if not result else limit)),len(text))
         # A tiny greeting cannot cover generation of the following segment.
         # Merge short sentences so playback has time to overlap the next call.
-        boundaries = [m.end() for m in re.finditer(r"[。！？；!?;\n]|(?<!\d)\.(?!\d)", text[:maximum]) if m.end() >= 3]
+        # 原按字符切断会把小数、字母缩写与收尾引号拆开。--yyl
+        sentence_ends, soft_ends, protected = breakpoints(text[:maximum + 28])
+        boundaries = [end for end in sentence_ends if 3 <= end <= maximum]
         minimum=60 if language=='en'else 24 if chat else 20
         usable = [end for end in boundaries if end >= min(minimum,len(text))]
         if language=='zh' and not usable:
@@ -44,17 +46,20 @@ def segments(text: str, limit: int = 40, language: str = 'zh', mode: str = 'defa
         if chat and not usable and maximum<len(text):
             # Abao keeps a nearby complete sentence/question instead of restarting
             # its intonation at the old28-character boundary. Other voices unchanged.
-            after=re.search(r'[。！？；!?;\n]|(?<!\d)\.(?!\d)',text[maximum:min(maximum+24,len(text))])
-            if after:usable=[maximum+after.end()]
+            nearby = next((end for end in sentence_ends if maximum < end <= maximum + 24), None)
+            if nearby is not None:usable=[nearby]
         end = early[0] if early else usable[-1] if usable else maximum
         if early:usable=early
         if not usable and end < len(text):
-            commas = [m.end() for m in re.finditer(r"[，、,:： ]", text[:maximum]) if m.end() >= (40 if language=='en'else 16)]
+            commas = [end for end in soft_ends if (40 if language=='en'else 16) <= end <= maximum]
             if commas:
                 end = commas[-1]
-            if text[end - 1] in "0123456789.-/:" and text[end] in "0123456789.-/:":
+            elif language == 'zh':
+                nearby = next((offset for offset in sentence_ends if end < offset <= end + 12), None)
+                if nearby is not None:end = nearby
+            if end in protected:
                 start = end - 1
-                while start > 0 and text[start - 1] in "0123456789.-/:":
+                while start in protected:
                     start -= 1
                 if start:
                     end = start
@@ -77,6 +82,7 @@ class _PcmInput:
     samples: np.ndarray
     target_lufs: float
     started: float
+    high_shelf_db: float = 0.0
 
 
 class _SpeechFuture(concurrent.futures.Future):
@@ -150,13 +156,11 @@ class VoiceEngine:
         # Guidance is immutable in the native model. Share one resident instance per
         # distinct trusted guidance setting, while A keeps its original instance/config.
         for variant,guidance in sorted({(v.model_variant,v.guidance_scale)for v in self.profiles.values()}):
-            weights=root/'fp32'if variant=='fp32'else root
-            encoder='encoder.onnx'if variant=='fp32'else'encoder.int8.onnx'
-            decoder='decoder.onnx'if variant=='fp32'else'decoder.int8.onnx'
+            encoder,decoder=MODEL_WEIGHTS[variant]
             cfg = sherpa_onnx.OfflineTtsConfig(model=sherpa_onnx.OfflineTtsModelConfig(
                 zipvoice=sherpa_onnx.OfflineTtsZipvoiceModelConfig(
-                    tokens=str(root / "tokens.txt"), encoder=str(weights/encoder),
-                    decoder=str(weights/decoder), vocoder=str(root / "vocos_24khz.onnx"),
+                    tokens=str(root / "tokens.txt"), encoder=str(root/encoder),
+                    decoder=str(root/decoder), vocoder=str(root / "vocos_24khz.onnx"),
                     lexicon=str(root / "lexicon.txt"), data_dir=str(root / "espeak-ng-data"),guidance_scale=guidance),
                 num_threads=int(self.config.get("threads", 4)), provider="cpu", debug=False),
                 rule_fsts=rules, max_num_sentences=1)
@@ -186,14 +190,14 @@ class VoiceEngine:
         if audio.sample_rate != 24000 or not len(samples) or not np.isfinite(samples).all():
             raise ValueError("Invalid generated audio")
         if voice.output_lufs is not None:
-            prepared=_PcmInput(samples,voice.output_lufs,start)
+            prepared=_PcmInput(samples,voice.output_lufs,start,voice.high_shelf_db)
             if defer_loudness:return prepared
             return self._finish_audio(prepared)
         return self._pack_pcm(samples,start)
 
     def _finish_audio(self,prepared):
         # 保留原两遍响度、真峰值校验和限幅，原A仍直接绕过。--yyl
-        samples,_=self.normalizer.normalize(prepared.samples,prepared.target_lufs)
+        samples,_=self.normalizer.normalize(prepared.samples,prepared.target_lufs,high_shelf_db=prepared.high_shelf_db)
         return self._pack_pcm(samples,prepared.started)
 
     @staticmethod

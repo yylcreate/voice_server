@@ -1,6 +1,7 @@
 """Private self-hosted TTS endpoint; signed backend requests, framed PCM response."""
 from __future__ import annotations
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import aclosing, asynccontextmanager
 import hashlib
 import hmac
@@ -13,9 +14,12 @@ import threading
 import time
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from voice_engine import VoiceEngine, segments
+from voice_text import has_speech, mandarin_text, spoken_text
+from voice_asr import MAX_WAV_BYTES, VoiceRecognizer, decode_wav
+from voice_previews import load_previews
 from runtime_profiles import resource_config, resource_info
 
 MAGIC = b"XYVOICE1"
@@ -57,21 +61,33 @@ async def speech_parts(engine, owner, parts, voice_id, cancelled, disconnected):
                 if result is not None:result.cancel()
 
 
-def create_app(config: dict, engine=None):
+def create_app(config: dict, engine=None, recognizer=None):
     config=resource_config(config)
     if len(config.get("secret", "")) < 32:
         raise ValueError("A service signing secret of at least 32 characters is required")
     engine = engine or VoiceEngine(config)
     nonces: dict[str, float] = {}
     jobs: dict[str, threading.Event] = {}
+    if recognizer is None and config.get('asr_model_dir'):
+        recognizer = VoiceRecognizer(config['asr_model_dir'])
+    asr_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix='xiaoya-asr') if recognizer else None
+    asr_job = None
+    previews = {}
 
     @asynccontextmanager
     async def lifespan(app):
-        await asyncio.wrap_future(engine.warm())
-        yield
-        for event in jobs.values():
-            event.set()
-        await asyncio.to_thread(engine.close)
+        try:
+            await asyncio.wrap_future(engine.warm())
+            previews.update(load_previews(config, engine.voice_ids))
+            if asr_worker:
+                await asyncio.wrap_future(asr_worker.submit(recognizer.warm))
+            yield
+        finally:
+            for event in jobs.values():
+                event.set()
+            if asr_worker:
+                await asyncio.to_thread(asr_worker.shutdown, cancel_futures=True)
+            await asyncio.to_thread(engine.close)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -82,15 +98,15 @@ def create_app(config: dict, engine=None):
     async def health():
         # 返回资源预算供迁移核对；音色路径、文本和服务密钥保持私有。--yyl
         return JSONResponse({"ready": engine.ready, "active": len(jobs), "protocol": "XYVOICE1", "external_tts": False,
-                             'runtime':resource_info(config)}, status_code=200 if engine.ready else 503)
+                             'asr': asr_worker is not None, 'voice_count': len(engine.voice_ids),
+                             'preview_count': len(previews), 'runtime':resource_info(config)}, status_code=200 if engine.ready else 503)
 
-    @app.post("/v1/stream")
-    async def stream(request: Request):
+    async def signed_body(request, maximum):
         raw = bytearray()
         async for piece in request.stream():
             raw.extend(piece)
-            if len(raw) > 360000:
-                return reject(413, "request too large")
+            if len(raw) > maximum:
+                return None, reject(413, "request too large")
         stamp = request.headers.get("x-hht-timestamp", "")
         nonce = request.headers.get("x-hht-nonce", "")
         signature = request.headers.get("x-hht-signature", "")
@@ -104,10 +120,60 @@ def create_app(config: dict, engine=None):
         if not (re.fullmatch(r"\d{10}", stamp) and abs(int(stamp)-now) <= 60 and
                 re.fullmatch(r"[a-f0-9]{32}", nonce) and re.fullmatch(r"[a-f0-9]{64}", signature) and
                 hmac.compare_digest(signature, expected) and nonce not in nonces):
-            return reject(403, "invalid service signature")
+            return None, reject(403, "invalid service signature")
         if len(nonces) >= 10000:
-            return reject(429, "service busy")
+            return None, reject(429, "service busy")
         nonces[nonce] = now + 120
+        return raw, None
+
+    @app.post('/v1/preview')
+    async def preview(request: Request):
+        raw, error = await signed_body(request, 1024)
+        if error is not None:
+            return error
+        try:
+            body = json.loads(raw)
+            if not isinstance(body, dict) or set(body) != {'voice_id'} or not isinstance(body['voice_id'], str):
+                raise ValueError()
+            if not re.fullmatch(r'[1-9][0-9]{0,18}', request.query_params.get('user_id', '')):
+                raise ValueError()
+        except ValueError:
+            return reject(400, 'invalid preview request')
+        audio = previews.get(body['voice_id'])
+        if audio is None:
+            return reject(404, 'preview not available')
+        return Response(audio, media_type='audio/wav', headers={'Cache-Control': 'no-store'})
+
+    @app.post('/v1/transcribe')
+    async def transcribe(request: Request):
+        nonlocal asr_job
+        raw, error = await signed_body(request, MAX_WAV_BYTES)
+        if error is not None:
+            return error
+        if not asr_worker:
+            return reject(503, 'speech recognition not configured')
+        if not re.fullmatch(r'[1-9][0-9]{0,18}', request.query_params.get('user_id', '')):
+            return reject(400, 'invalid user')
+        if asr_job is not None and not asr_job.done():
+            return reject(429, 'speech recognition busy')
+        try:
+            samples = decode_wav(raw)
+        except ValueError:
+            return reject(400, 'invalid audio')
+        asr_job = asr_worker.submit(recognizer.recognize, samples)
+        try:
+            result = await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(asr_job)), timeout=20)
+        except TimeoutError:
+            return reject(504, 'speech recognition timed out')
+        except Exception:
+            return reject(500, 'speech recognition failed')
+        return JSONResponse({'text': result}, headers={'Cache-Control': 'no-store'})
+
+    @app.post("/v1/stream")
+    async def stream(request: Request):
+        raw, error = await signed_body(request, 360000)
+        if error is not None:
+            return error
         try:
             body = json.loads(raw)
             required={"user_id", "request_id", "text"}
@@ -121,8 +187,16 @@ def create_app(config: dict, engine=None):
             if not isinstance(body["text"], str) or not 1 <= len(body["text"].strip()) <= 60000:
                 raise ValueError()
             voice_id=body.get('voice_id',engine.default_voice)
-            if not isinstance(voice_id,str)or voice_id not in engine.voice_ids:raise ValueError()
-            parts = segments(body["text"],language=engine.voice_languages.get(voice_id,'zh'),mode=engine.voice_modes.get(voice_id,'default'))
+            if not isinstance(voice_id,str):raise ValueError()
+            # 原直接交给模型的文本包含表情和格式符；清理后按受信音色路由。--yyl
+            speaker = engine.default_voice if voice_id in ('female-03','lauren') else voice_id
+            if speaker not in engine.voice_ids:raise ValueError()
+            language = engine.voice_languages.get(speaker, 'zh')
+            text = spoken_text(body['text'])
+            # 原英文片段切换Lauren。现在中英混读都用所选音色，英文走模型内的英语前端。--yyl
+            parts = [mandarin_text(part) if language == 'zh' else part
+                     for part in segments(text, language=language, mode=engine.voice_modes.get(speaker,'default'))
+                     if has_speech(part)]
             if not parts:
                 raise ValueError()
         except (ValueError, TypeError, KeyError):
@@ -138,7 +212,7 @@ def create_app(config: dict, engine=None):
             started = False
             delivered = 0
             try:
-                async with aclosing(speech_parts(engine, uid, parts, voice_id, cancelled, request.is_disconnected)) as prepared:
+                async with aclosing(speech_parts(engine, uid, parts, speaker, cancelled, request.is_disconnected)) as prepared:
                     async for index, result in prepared:
                         if not started:
                             yield MAGIC + frame(1, {"rate": result.rate, "channels": 1, "format": "pcm_s16le", "total": len(parts),'voice_id':voice_id})

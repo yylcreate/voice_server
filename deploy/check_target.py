@@ -11,7 +11,8 @@ from pathlib import Path
 SERVICE=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(SERVICE))
 from runtime_profiles import TARGET,resource_config,resource_info
-from voice_profiles import load_profiles
+from voice_profiles import MODEL_WEIGHTS, load_profiles
+from voice_previews import load_previews
 
 
 def memory_mib():
@@ -34,14 +35,15 @@ def main():
     if len(config.get('secret',''))<32:raise ValueError('Configure the existing backend service signing secret privately')
     if not shutil.which(config.get('ffmpeg','ffmpeg')):raise ValueError('Configured local FFmpeg is unavailable')
     default,voices=load_profiles(config)
+    previews=load_previews(config,voices)
     model=Path(config['model_dir'])
     required=['tokens.txt','lexicon.txt','vocos_24khz.onnx','phone.fst','date.fst','number.fst']
-    if any(v.model_variant=='int8'for v in voices.values()):required+=['encoder.int8.onnx','decoder.int8.onnx']
-    if any(v.model_variant=='fp32'for v in voices.values()):required+=['fp32/encoder.onnx','fp32/decoder.onnx']
+    for variant in {v.model_variant for v in voices.values()}:
+        required.extend(MODEL_WEIGHTS[variant])
     if any(not(model/name).is_file()for name in required):raise ValueError('Required local voice model files are missing')
     total=memory_mib();cpu=os.cpu_count()
     match=platform.system()=='Linux'and platform.machine().lower()in ('x86_64','amd64')and cpu==4 and total is not None and total>=11000
-    result={'configuration_valid':True,'runtime':resource_info(config),'voice_count':len(voices),'default_voice':default,
+    result={'configuration_valid':True,'runtime':resource_info(config),'voice_count':len(voices),'preview_count':len(previews),'default_voice':default,
             'references_checksum_verified':True,'hardware':{'system':platform.system(),'machine':platform.machine(),
             'visible_logical_cpus':cpu,'memory_mib':total},'matches_target_baseline':match,'server_capacity_measured':False}
     print(json.dumps(result,ensure_ascii=False))

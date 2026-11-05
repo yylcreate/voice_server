@@ -42,6 +42,20 @@ class ProfileTests(unittest.TestCase):
             _,profiles=load_profiles(config)
             self.assertEqual((profiles['xiaoya-a'].steps,profiles['xiaoya-a'].guidance_scale,profiles['xiaoya-a'].output_lufs),(8,3,-16))
             self.assertEqual(profiles['xiaoya-a'].greeting_steps,12)
+    def test_high_shelf_requires_calibrated_voice_and_bounded_gain(self):
+        with tempfile.TemporaryDirectory()as folder:
+            config,catalog,target=self.fixture(Path(folder));entry=catalog['voices'][0]
+            _,legacy=load_profiles(config)
+            self.assertEqual(legacy['xiaoya-a'].high_shelf_db,0)
+            entry['high_shelf_db']=-2.22;target.write_text(json.dumps(catalog))
+            with self.assertRaises(ValueError):load_profiles(config)
+            entry['output_lufs']=-16
+            for gain in (-4.01,.01,True,None,'-2',float('nan')):
+                entry['high_shelf_db']=gain;target.write_text(json.dumps(catalog))
+                with self.assertRaises(ValueError):load_profiles(config)
+            entry['high_shelf_db']=-2.22;target.write_text(json.dumps(catalog))
+            _,profiles=load_profiles(config)
+            self.assertEqual(profiles['xiaoya-a'].high_shelf_db,-2.22)
     def test_pcm_cache_is_separate_for_voice_and_owner(self):
         engine=VoiceEngine({});engine.voice_ids={'xiaoya-a','second'};calls=[]
         engine._generate=lambda text,voice,**_:(calls.append(voice)or Pcm(bytes([len(calls),0])*100,24000,1))

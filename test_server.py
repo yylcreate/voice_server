@@ -4,10 +4,13 @@ import hashlib
 import hmac
 import json
 import struct
+import tempfile
 import threading
 import time
 import unittest
 import uuid
+import wave
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from starlette.requests import Request
@@ -43,6 +46,64 @@ def signed(body, path="/v1/stream?user_id=10133", nonce=None):
 class VoiceTests(unittest.TestCase):
     def body(self):
         return {"user_id":10133,"request_id":uuid.uuid4().hex,"text":"你好，我是小雅。请核对数量。"}
+
+    def test_signed_preview_returns_exact_wav_without_synthesis(self):
+        class PreviewEngine(FakeEngine):
+            voice_ids = {'xiaoya-a'}
+            def synthesize(self, *args):
+                raise AssertionError('Preview invoked synthesis')
+
+        path = '/v1/preview?user_id=10133'
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            sample = root / 'xiaoya-a.wav'
+            with wave.open(str(sample), 'wb') as wav:
+                wav.setparams((1, 2, 24000, 0, 'NONE', 'not compressed'))
+                wav.writeframes(b'\x01\x00' * 50)
+            audio = sample.read_bytes()
+            manifest = root / 'manifest.json'
+            manifest.write_text(json.dumps({'schema': 1, 'asset_kind': 'fixed_preview_wav', 'voices': [
+                {'id': 'xiaoya-a', 'file': sample.name, 'bytes': len(audio), 'sha256': hashlib.sha256(audio).hexdigest()}
+            ]}), encoding='utf-8')
+            config = {'secret': SECRET, 'model_dir': str(root), 'preview_manifest': str(manifest)}
+            with TestClient(create_app(config, PreviewEngine())) as client:
+                self.assertEqual(client.get('/health').json()['preview_count'], 1)
+                request = {'voice_id': 'xiaoya-a'}
+                self.assertEqual(client.post(path, json=request).status_code, 403)
+                raw, headers = signed(request, path)
+                response = client.post(path, content=raw, headers=headers)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers['content-type'], 'audio/wav')
+                self.assertEqual(response.content, audio)
+                self.assertEqual(client.post(path, content=raw, headers=headers).status_code, 403)
+                raw, headers = signed({'voice_id': '../xiaoya-a'}, path)
+                self.assertEqual(client.post(path, content=raw, headers=headers).status_code, 404)
+            sample.write_bytes(audio[:-1] + b'\x01')
+            with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                with TestClient(create_app(config, PreviewEngine())):
+                    self.fail('A changed preview passed startup')
+
+    def test_mixed_text_uses_selected_voice_and_old_lauren_id_uses_default(self):
+        calls = []
+        class RecordingEngine(FakeEngine):
+            voice_ids = {'xiaoya-a', 'chosen', 'lauren'}
+            voice_languages = {'xiaoya-a': 'zh', 'chosen': 'zh', 'lauren': 'en'}
+            def synthesize(self, owner, text, cancelled, voice_id=None):
+                calls.append((voice_id, text))
+                return super().synthesize(owner, text, cancelled, voice_id)
+
+        with TestClient(create_app({'secret': SECRET}, RecordingEngine())) as client:
+            body = {**self.body(), 'voice_id': 'chosen', 'text': '请用 Dashboard 查工单 A-034425。'}
+            raw, headers = signed(body)
+            response = client.post('/v1/stream?user_id=10133', content=raw, headers=headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(calls, [('chosen', '请用 Dashboard 查工单 A 杠零三四四二五。')])
+            calls.clear()
+            body.update(request_id=uuid.uuid4().hex, voice_id='lauren')
+            raw, headers = signed(body)
+            response = client.post('/v1/stream?user_id=10133', content=raw, headers=headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(calls, [('xiaoya-a', '请用 Dashboard 查工单 A 杠零三四四二五。')])
 
     def test_signed_stream_has_metadata_pcm_and_explicit_completion(self):
         with TestClient(create_app({"secret":SECRET}, FakeEngine())) as client:

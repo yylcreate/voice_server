@@ -5,13 +5,16 @@ umask 077
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 [[ ${EUID} -eq 0 ]] || fail 'Run this deployment as root.'
-[[ $# -eq 1 && $1 =~ ^[a-f0-9]{40}$ ]] || fail 'Provide the reviewed full Git commit.'
+[[ ( $# -eq 1 || $# -eq 2 ) && $1 =~ ^[a-f0-9]{40}$ ]] || fail 'Provide the reviewed full Git commit and optional staged config.'
 commit=$1
+live_config=/etc/xiaoya-voice/config.json
+candidate_config=${2:-$live_config}
+candidate_config=$(realpath -e -- "$candidate_config")
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd -- "$root"
 [[ $(git rev-parse HEAD) == "$commit" ]] || fail 'Checkout is not the reviewed commit.'
 [[ -z $(git status --porcelain --untracked-files=no) ]] || fail 'Tracked source has local modifications.'
-[[ -f /etc/xiaoya-voice/config.json && -d /var/lib/xiaoya-voice/models/zipvoice ]] || fail 'Private config/model assets are missing.'
+[[ -f $live_config && ! -L $live_config && -f $candidate_config && -d /var/lib/xiaoya-voice/models/zipvoice ]] || fail 'Private config/model assets are missing.'
 command -v docker >/dev/null
 command -v curl >/dev/null
 command -v python3 >/dev/null
@@ -37,7 +40,7 @@ if ! docker image inspect "$XIAOYA_VOICE_IMAGE" >/dev/null 2>&1; then
 fi
 [[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$XIAOYA_VOICE_IMAGE") == "$commit" ]] || fail 'Image revision mismatch.'
 docker run --rm --network none --read-only --cpus 2.5 --memory 4g --pids-limit 128 \
-    --mount type=bind,src=/etc/xiaoya-voice/config.json,dst=/run/voice/config.json,readonly \
+    --mount "type=bind,src=$candidate_config,dst=/run/voice/config.json,readonly" \
     --mount type=bind,src=/var/lib/xiaoya-voice/models/zipvoice,dst=/models/zipvoice,readonly \
     "$XIAOYA_VOICE_IMAGE" python deploy/check_target.py --config /run/voice/config.json --require-target-hardware
 
@@ -46,11 +49,26 @@ if [[ $old_running == true ]]; then
       | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ready"] and d["active"]==0, "Voice service must be healthy and idle before switching"'
 fi
 
+release_dir="/var/lib/xiaoya-voice/releases/$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:12}"
+install -d -m 700 "$release_dir"
+if [[ $candidate_config != "$live_config" ]]; then
+    install -m 600 -- "$live_config" "$release_dir/config.before.json"
+fi
+
+replace_config() {
+    local staged
+    staged=$(mktemp /etc/xiaoya-voice/.config-release.XXXXXXXX)
+    install -o root -g 10001 -m 640 -- "$1" "$staged" && mv -T -- "$staged" "$live_config"
+}
+
 switched=false
 rollback() {
     local status=$?
     trap - ERR
     if [[ $switched == true ]]; then
+        if [[ -f $release_dir/config.before.json ]]; then
+            replace_config "$release_dir/config.before.json" || fail 'Restore the saved voice configuration before restarting.'
+        fi
         if [[ -n $old_image && $old_running == true ]]; then
             export XIAOYA_VOICE_IMAGE="$old_image"
             "${compose[@]}" up -d --no-deps voice || true
@@ -64,11 +82,12 @@ rollback() {
 }
 trap rollback ERR
 switched=true
+if [[ $candidate_config != "$live_config" ]]; then
+    replace_config "$candidate_config"
+fi
 "${compose[@]}" up -d --no-deps voice
 "${compose[@]}" exec -T voice python deploy/check_ready.py --timeout 180
 
-release_dir="/var/lib/xiaoya-voice/releases/$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:12}"
-install -d -m 700 "$release_dir"
 container=$("${compose[@]}" ps -q voice)
 docker inspect --format '{{.Id}} {{.Image}}' "$container" > "$release_dir/container.txt"
 printf '%s\n' "$commit" > "$release_dir/commit.txt"

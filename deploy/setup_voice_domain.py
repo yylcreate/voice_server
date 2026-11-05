@@ -51,7 +51,7 @@ def main():
         if had_enabled:assert ENABLED.resolve()==SITE
         before_sites=other_sites();before_voice=inspect('xiaoya-voice-voice-1');before_ai=inspect('yilian-aim-codex-api')
         runtime_commit=before_voice['Config']['Labels']['org.opencontainers.image.revision']
-        runtime_files=['server.py','voice_engine.py','voice_profiles.py','voice_loudness.py','runtime_profiles.py','requirements.txt','Dockerfile','compose.yaml']
+        runtime_files=['server.py','voice_engine.py','voice_profiles.py','voice_loudness.py','voice_text.py','voice_asr.py','voice_previews.py','runtime_profiles.py','requirements.txt','Dockerfile','compose.yaml']
         assert not command('git','-C',str(ROOT),'diff','--name-only',runtime_commit,args.commit,'--',*runtime_files),'Runtime changed; use the model release process'
         assert health('http://127.0.0.1:8793/health')['ready']
         receipt=pathlib.Path('/var/lib/xiaoya-voice/domain-releases')/datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')

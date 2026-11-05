@@ -47,6 +47,49 @@ class LoudnessTests(unittest.TestCase):
         self.assertLessEqual(float(measured['input_tp']),-.8)
         self.assertLess(abs(float(measured['input_i'])+16),1.0)
 
+    def test_two_second_peak_limited_tail_does_not_collapse_in_volume(self):
+        # 模拟约2秒尾句：语音能量正常，但少量瞬态接近峰值上限。--yyl
+        t=np.arange(48640,dtype=np.float32)/24000
+        x=(.15*np.sin(2*np.pi*220*t)+.04*np.sin(2*np.pi*440*t))*(.6+.4*np.sin(2*np.pi*2.3*t)**2)
+        x[1000::12000]=.875
+        before=self.normalizer.measure(x)
+        output,report=self.normalizer.normalize(x,-16)
+        after=self.normalizer.measure(output)
+        self.assertEqual(len(output),len(x))
+        self.assertGreater(float(np.sqrt(np.mean(output*output))),float(np.sqrt(np.mean(x*x)))*.9)
+        self.assertLessEqual(float(after['input_tp']),-.9)
+        self.assertGreater(float(after['input_i']),float(before['input_i'])-.5)
+        self.assertEqual(report['mode'],'short-bs1770-with-truepeak-ceiling')
+
+    def test_quiet_two_second_phrase_is_calibrated_without_timing_or_pitch_change(self):
+        x=self.signal[:48640]*.08
+        output,report=self.normalizer.normalize(x,-16)
+        measured=self.normalizer.measure(output)
+        self.assertEqual(len(output),len(x))
+        self.assertGreater(float(np.corrcoef(x,output)[0,1]),.9999)
+        self.assertLess(abs(float(measured['input_i'])+16),.6)
+        self.assertLessEqual(float(measured['input_tp']),-.9)
+        self.assertTrue(np.isfinite(output).all())
+        self.assertGreater(report['gain_db'],0)
+
+    def test_high_shelf_reduces_high_band_at_matched_loudness(self):
+        for length in (48000,96000):
+            with self.subTest(length=length):
+                t=np.arange(length)/24000
+                source=(.1*np.sin(2*np.pi*1000*t)+.05*np.sin(2*np.pi*7000*t)).astype(np.float32)
+                normal,_=self.normalizer.normalize(source,-16)
+                softer,_=self.normalizer.normalize(source,-16,high_shelf_db=-4)
+                self.assertEqual(len(normal),len(softer))
+                baseline=np.abs(np.fft.rfft(normal))
+                candidate=np.abs(np.fft.rfft(softer))
+                low=length*1000//24000;high=length*7000//24000
+                difference=20*np.log10((candidate[high]/candidate[low])/(baseline[high]/baseline[low]))
+                self.assertLess(difference,-2.8)
+                self.assertGreater(difference,-4.5)
+                report=self.normalizer.measure(softer)
+                self.assertLess(abs(float(report['input_i'])+16),.6)
+                self.assertLessEqual(float(report['input_tp']),-.9)
+
     def test_accepted_A_bypasses_processing_and_keeps_reference_and_four_steps(self):
         source=self.signal.astype(np.float32);calls=[]
         class Model:
@@ -70,7 +113,7 @@ class LoudnessTests(unittest.TestCase):
         source=self.signal.astype(np.float32)
         class Model:
             def generate(self,*args):return SimpleNamespace(sample_rate=24000,samples=source)
-        voice=VoiceProfile('sample','Sample','zh','','参考文字',np.array([.1],dtype=np.float32),'hash',output_lufs=-16)
+        voice=VoiceProfile('sample','Sample','zh','','参考文字',np.array([.1],dtype=np.float32),'hash',output_lufs=-16,high_shelf_db=-2.22)
         engine=VoiceEngine({});engine.profiles={'sample':voice};engine.voice_ids={'sample'}
         engine.models={('int8',1.0):Model()};engine.normalizer=self.normalizer
         try:
@@ -85,11 +128,11 @@ class LoudnessTests(unittest.TestCase):
         engine=VoiceEngine({});engine.profiles={'xiaoya-a':voice};calls=[]
         engine._generate=lambda text,identity,**_:(calls.append(identity)or Pcm(bytes([len(calls),0])*20,24000,1))
         try:
-            for setting in[voice,dataclasses.replace(voice,text='你好呀。'),dataclasses.replace(voice,steps=8),dataclasses.replace(voice,output_lufs=-16),dataclasses.replace(voice,guidance_scale=3),dataclasses.replace(voice,model_variant='fp32'),dataclasses.replace(voice,speed=.98),dataclasses.replace(voice,prosody_mode='chat'),dataclasses.replace(voice,greeting_steps=8)]:
+            for setting in[voice,dataclasses.replace(voice,text='你好呀。'),dataclasses.replace(voice,steps=8),dataclasses.replace(voice,output_lufs=-16),dataclasses.replace(voice,guidance_scale=3),dataclasses.replace(voice,model_variant='fp32'),dataclasses.replace(voice,speed=.98),dataclasses.replace(voice,prosody_mode='chat'),dataclasses.replace(voice,greeting_steps=8),dataclasses.replace(voice,output_lufs=-16,high_shelf_db=-2.22)]:
                 engine.profiles['xiaoya-a']=setting
                 self.assertFalse(engine.synthesize(1,'同一句',threading.Event(),'xiaoya-a').result().cached)
                 self.assertTrue(engine.synthesize(1,'同一句',threading.Event(),'xiaoya-a').result().cached)
-            self.assertEqual(len(calls),9)
+            self.assertEqual(len(calls),10)
         finally:engine.close()
 
     def test_greeting_override_keeps_regular_sentences_at_original_steps(self):

@@ -7,11 +7,18 @@
 - 源码：[yylcreate/voice_server](https://github.com/yylcreate/voice_server)。模型版本以容器 `org.opencontainers.image.revision` 为准，路由版本以 `/opt/xiaoya-voice` 的Git提交为准；仅改域名时核对两者运行模块一致，无需重启模型。
 - 健康：[https://voice.6xmu.com/health](https://voice.6xmu.com/health)。
 - 合成：`POST https://voice.6xmu.com/v1/stream?user_id=<账号>`，必须使用后台HMAC签名，未签名请求返回403。
+- 识别入口为 `POST /v1/transcribe?user_id=<账号>`，请求体为单声道 16 kHz PCM16 WAV，最长 30 秒，签名计算使用原始 WAV 字节。返回 `{"text":"…"}`。
 - 程序：`/opt/xiaoya-voice`；私有模型：`/var/lib/xiaoya-voice/models/zipvoice`；私有配置：`/etc/xiaoya-voice/config.json`。
 - Docker Compose项目 `xiaoya-voice`，容器 `xiaoya-voice-voice-1`；宿主端口仅 `127.0.0.1:8793`，经原Nginx站点提供HTTPS入口。
 - CPU上限2.5核、内存上限4GiB，2条活动请求、单原生推理工作线程、2个模型线程、1个音频处理线程。第三条同时活动请求返回429；相同账号/音色/文字可复用进行中的计算。
 
 本机HHT的私有配置 `url` 使用 `https://voice.6xmu.com`，签名密钥、模型路径和音色目录保留。原本机模型服务保留为回退；App继续调用业务后台，无需携带服务密钥或内置模型。其他机器部署HHT时，仍需私有设置相同的基础URL与密钥。
+
+经试听确认的音色可在私有目录的 `voices` 条目设置 `high_shelf_db`，范围为 −4 到 0 dB，开启时同时配置 `output_lufs`。滤波在 3900 Hz 附近柔化高频，随后执行原响度和真峰值校准。缺少该字段的旧目录继续使用原处理流程。
+
+选用完整 ZipVoice 的音色使用 `model_variant: full`。在已有私有模型目录的 `full/` 下准备 `text_encoder.onnx` 与 `fm_decoder.onnx`，并确认词表和声码器与当前前端兼容。仅在目录使用该档时加载这组权重。按目标主机的内存限制和首段返回时间实测后再启用。
+
+启用识别前，在已挂载的模型目录内单独准备 SenseVoice INT8 的 `model.int8.onnx` 和 `tokens.txt`，在私有配置设置 `asr_model_dir`，例如 `/models/zipvoice/sensevoice`。模型文件与部署源码分开保存。核对健康页 `asr: true`，用签名 WAV 样本验收后，在手持端业务后台配置 `HHT_VOICE_ASR_ENABLED=1`。识别每次仅处理一路，繁忙时返回 429，模型使用一个 CPU 推理线程。并发资源和生产延迟需在目标服务器实测。
 
 ## 独立域名部署
 

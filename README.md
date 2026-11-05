@@ -1,8 +1,8 @@
 # 小雅 ZipVoice 语音服务
 
-小雅AI的自部署CPU语音后端，使用ZipVoice-Distill与已确认的12个参考音色。默认温柔桃子（升级版）保留原A参考、INT8/guidance1/四步/原速和原输出；其他音色保留已确认的参数及响度处理。--yyl
+小雅AI的自部署CPU语音后端，正式目录使用十个已定稿音色。默认温柔桃子保留原A参考、INT8/guidance1/四步/原速和原输出。试听按私有清单返回用户确认的 WAV。
 
-本仓库管理服务源码、检查和部署文件。模型、参考录音、目录转写及签名配置由服务器私有保存，部署时单独迁移；它们不进入Git、镜像或App安装包。
+本仓库是语音服务源码、检查和部署的统一入口。模型、参考录音、定稿 WAV、目录转写及签名配置由服务器私有保存，部署时校验摘要后只读挂载。
 
 当前主机入口、目录、资源预算与实际短句测量见 [部署记录](deploy/production.md)。--yyl
 
@@ -28,7 +28,7 @@
 需要Docker Engine及Compose插件。按已审核Git提交构建，不使用工作区临时文件覆盖服务。
 
 1. 将仓库克隆到 `/opt/xiaoya-voice`，检出审核的完整提交。
-2. 将原ZipVoice模型、espeak数据、12份参考及当前 `voice-catalog.json` 私有迁移到 `/var/lib/xiaoya-voice/models/zipvoice`，保留相对路径和摘要。运行时目录必须可供容器UID/GID `10001:10001`读取。
+2. 将 ZipVoice 模型、espeak 数据、参考、当前音色目录及定稿试听文件私有迁移到 `/var/lib/xiaoya-voice/models/zipvoice`，保留相对路径和摘要。运行时目录必须可供容器 UID/GID `10001:10001` 读取。
 3. 按 [容器配置模板](deploy/docker/config.example.json) 准备 `/etc/xiaoya-voice/config.json`，通过私有方式填入与HHT一致的现有签名密钥。建议配置 `root:10001`、权限0640，目录0750；空密钥不能启动。
 4. 忙碌的共机服务器优先下载同一提交通过CI的 `voice-image-<完整提交>` 制品，核对制品SHA256及内部 `image-manifest.json`，执行 `docker load --input image.tar.gz`，再运行 `python3 tools/verify_loaded_image.py --manifest image-manifest.json`。验证文件层、运行配置及版本，兼容Docker不同后端的ID表示。镜像不包含私有模型/配置。CI制品保留一天，不能当作长期备份。
 5. 执行 [受控发布脚本](deploy/release.sh)，参数是本次完整提交；已加载相同revision的镜像时跳过服务器构建：
@@ -38,7 +38,7 @@
    sudo bash deploy/release.sh "$(git rev-parse HEAD)"
    ```
 
-脚本核对源码状态、构建revision和私有资产配置，只更新 `xiaoya-voice` 项目的 `voice` 容器。启动等待就绪，失败恢复上一镜像；首次部署失败则停止本次容器。模型、配置和原有AI服务不属于容器更新内容。模型端口仅映射到宿主机 `127.0.0.1:8793`，共享AI服务的容器和持久卷不受本项目Compose管理。
+脚本核对源码、镜像 revision 和私有资产，只更新 `xiaoya-voice` 的 `voice` 容器。第二个参数可传入已暂存的私有配置，验证通过后和容器一起切换，启动失败时恢复旧配置及镜像。模型端口映射到宿主机 `127.0.0.1:8793`。
 
 健康检查：`curl --fail http://127.0.0.1:8793/health`。原生Linux/systemd部署模板保留在 [AMD目标目录](deploy/amd-4vcpu-12gb/README.md)，选择一种运行方式，避免同端口运行两份模型。
 
@@ -52,6 +52,8 @@
 
 `POST /v1/stream?user_id=<账号>` 接收 `user_id`、32位十六进制 `request_id`、`text` 和可选 `voice_id`。签名头为 `X-Hht-Timestamp`、`X-Hht-Nonce`、`X-Hht-Signature`；规范及可执行样例见 [签名流检查工具](tools/smoke_test.py) 与 [协议检查](test_server.py)。接口返回的 `cached=true` 也包含同次进行中计算的复用。
 
+`POST /v1/preview?user_id=<账号>` 使用同样的签名，请求体为 `{"voice_id":"female-04"}`。配置 `preview_manifest` 后，启动逐项验证音色 ID、WAV 格式及 SHA-256，接口以 `audio/wav` 返回定稿文件原始字节。`tools/verify_approved.py` 可实测签名试听、字节摘要和实时 PCM 流。
+
 ## 本地开发
 
 ### PC线上测试页
@@ -63,7 +65,7 @@ python tools/pc_test.py --config "../ysim/runtime/xiaoya-voice.json" --port 8797
 ```
 
 <!-- 原所有请求固定发往voice.6xmu.com；增加仅启动者可设置的国内对照目标，网页不可覆盖。--yyl -->
-打开 [本机测试页](http://127.0.0.1:8797/)，选择12个预设音色、输入文字后点击“开始测试”。本机服务只绑定环回地址，签名密钥留在服务端，默认目标为 `https://voice.6xmu.com`；启动时可用 `--upstream` 指定另一HTTPS源，或通过SSH隧道访问本机HTTP地址，建议国内对照用 `--port 8798`。跨主机HTTP被拒绝，HTTPS始终校验证书，网页不能覆盖目标。PC不加载模型或参考录音，配置只需现有签名值和可读取的音色目录路径，不进入Git。--yyl
+打开 [本机测试页](http://127.0.0.1:8797/)，从当前目录选择音色，输入文字后点击“开始测试”。本机服务只绑定环回地址，签名密钥留在服务端，默认目标为 `https://voice.6xmu.com`；启动时可用 `--upstream` 指定另一HTTPS源，或通过SSH隧道访问本机HTTP地址，建议国内对照用 `--port 8798`。跨主机HTTP被拒绝，HTTPS始终校验证书，网页不能覆盖目标。PC配置只需现有签名值和可读取的音色目录路径。--yyl
 
 “新合成”使用独立测试身份，“同文复测”沿用上次身份且要求文字和音色相同；是否复用以返回标记为准，不把复用音频当作模型提速。页面显示服务响应、首包PCM、播放启动估算、完整返回和音频时长，支持边收边播、停止、WAV重播/下载和记录导出。播放启动按浏览器音频时间戳估算，非扬声器实测；完整成功必须收齐PCM、完成帧并校验连接结束。
 

@@ -6,6 +6,9 @@
 !voice_engine.py
 !voice_profiles.py
 !voice_loudness.py
+!voice_text.py
+!voice_asr.py
+!voice_previews.py
 !runtime_profiles.py
 !deploy/
 deploy/*
