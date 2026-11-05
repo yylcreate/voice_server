@@ -171,11 +171,12 @@ class Settings:
         if self.default not in self.voices or not 1<=len(self.voices)<=32:raise TestError('默认音色不可用')
         self.parallel=20 if self.upstream==UPSTREAM else 2
         self.token=secrets.token_hex(32);self.jobs=Jobs();self.slots=threading.BoundedSemaphore(self.parallel)
-        self.asr_slot=threading.BoundedSemaphore(1)
+        self.asr_parallel=20 if self.upstream==UPSTREAM else 1
+        self.asr_slot=threading.BoundedSemaphore(self.asr_parallel)
     # 原公开endpoint使用UPSTREAM；显示本进程实际固定的目标，避免国内对照误标为正式服务。--yyl
     def public(self):return {'endpoint':self.upstream,'voices':list(self.voices.values()),'default_voice_id':self.default,
         'greeting':GREETING,'token':self.token,'max_characters':60000,'max_pcm_bytes':MAX_PCM,'protocol':'XYVOICE1',
-        'parallel':self.parallel}
+        'parallel':self.parallel,'asr_parallel':self.asr_parallel}
     # 原 HTTPSConnection(HOST,443,...)；远端仍强制校验证书，HTTP仅供本机SSH隧道。--yyl
     def connect(self):
         if self.target.scheme=='https':
@@ -266,7 +267,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get('Content-Type')!='audio/wav':raise TestError('请提交 WAV 录音',415)
         size=int(self.headers.get('Content-Length','0'))
         if not 44<=size<=964096:raise TestError('录音长度无效，最长 30 秒',413)
-        if not self.settings.asr_slot.acquire(blocking=False):raise TestError('已有录音正在识别',429)
+        if not self.settings.asr_slot.acquire(blocking=False):raise TestError('本机测试已达活动识别请求上限',429)
         conn=None
         try:
             self.connection.settimeout(8)
@@ -277,7 +278,9 @@ class Handler(BaseHTTPRequestHandler):
             if conn.sock is not None:conn.sock.settimeout(30)
             conn.request('POST',path,body=audio,headers=sign_request(self.settings.secret,path,audio,'audio/wav'))
             response=conn.getresponse();raw=response.read(65537)
-            if response.status in (400,429):raise TestError('录音格式无效或识别服务正忙',response.status)
+            if response.status==400:raise TestError('录音格式无效',400)
+            if response.status==429:raise TestError('线上识别请求已达上限，请稍后再试',429)
+            if response.status==504:raise TestError('线上识别超时，请稍后再试',504)
             if response.status!=200 or len(raw)>65536:raise TestError('线上识别返回 HTTP '+str(response.status),502)
             data=json.loads(raw)
             if not isinstance(data,dict) or not isinstance(data.get('text'),str):raise TestError('线上识别响应无效',502)

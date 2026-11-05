@@ -1,4 +1,5 @@
 """Local SenseVoice recognition for the handset's mono 16 kHz WAV."""
+from concurrent.futures import ThreadPoolExecutor
 import io
 from pathlib import Path
 import wave
@@ -48,3 +49,21 @@ class VoiceRecognizer:
         stream.accept_waveform(RATE, samples)
         self.model.decode_stream(stream)
         return stream.result.text.strip()
+
+
+class RecognitionWorker:
+    """Each native recognizer belongs to one dedicated inference thread."""
+
+    def __init__(self, recognizer):
+        self.recognizer = recognizer
+        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='xiaoya-asr')
+        self.pending = {}
+
+    def workload(self):
+        self.pending = {job: size for job, size in self.pending.items() if not job.done()}
+        return sum(self.pending.values())
+
+    def submit(self, samples):
+        job = self.executor.submit(self.recognizer.recognize, samples)
+        self.pending[job] = len(samples)
+        return job

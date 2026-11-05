@@ -1,7 +1,6 @@
 """Private self-hosted TTS endpoint; signed backend requests, framed PCM response."""
 from __future__ import annotations
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import aclosing, asynccontextmanager
 import hashlib
 import hmac
@@ -18,7 +17,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from voice_engine import VoiceEngine, segments
 from voice_text import has_speech, mandarin_text, spoken_text
-from voice_asr import MAX_WAV_BYTES, VoiceRecognizer, decode_wav
+from voice_asr import MAX_WAV_BYTES, RecognitionWorker, VoiceRecognizer, decode_wav
 from voice_previews import load_previews
 from runtime_profiles import resource_config, resource_info
 
@@ -88,10 +87,11 @@ def create_app(config: dict, engine=None, recognizer=None):
     engine = engine or VoiceEngine(config)
     nonces: dict[str, float] = {}
     jobs: dict[str, threading.Event] = {}
-    if recognizer is None and config.get('asr_model_dir'):
-        recognizer = VoiceRecognizer(config['asr_model_dir'])
-    asr_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix='xiaoya-asr') if recognizer else None
-    asr_job = None
+    recognizers = [recognizer] if recognizer is not None else []
+    if not recognizers and config.get('asr_model_dir'):
+        recognizers = [VoiceRecognizer(config['asr_model_dir']) for _ in range(config['asr_workers'])]
+    asr_workers = [RecognitionWorker(model) for model in recognizers]
+    max_asr_requests = config['max_asr_requests'] if asr_workers else 0
     previews = {}
 
     @asynccontextmanager
@@ -99,14 +99,14 @@ def create_app(config: dict, engine=None, recognizer=None):
         try:
             await asyncio.wrap_future(engine.warm())
             previews.update(load_previews(config, engine.voice_ids))
-            if asr_worker:
-                await asyncio.wrap_future(asr_worker.submit(recognizer.warm))
+            for worker in asr_workers:
+                await asyncio.wrap_future(worker.executor.submit(worker.recognizer.warm))
             yield
         finally:
             for event in jobs.values():
                 event.set()
-            if asr_worker:
-                await asyncio.to_thread(asr_worker.shutdown, cancel_futures=True)
+            await asyncio.gather(*(asyncio.to_thread(worker.executor.shutdown, cancel_futures=True)
+                                   for worker in asr_workers))
             await asyncio.to_thread(engine.close)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -117,8 +117,14 @@ def create_app(config: dict, engine=None, recognizer=None):
     @app.get("/health")
     async def health():
         # 返回资源预算供迁移核对；音色路径、文本和服务密钥保持私有。--yyl
+        for worker in asr_workers:
+            worker.workload()
+        asr_jobs = [job for worker in asr_workers for job in worker.pending]
         return JSONResponse({"ready": engine.ready, "active": len(jobs), "protocol": "XYVOICE1", "external_tts": False,
-                             'asr': asr_worker is not None, 'voice_count': len(engine.voice_ids),
+                             'asr': bool(asr_workers),
+                             'asr_capacity': {'workers': len(asr_workers), 'limit': max_asr_requests,
+                                              'active': len(asr_jobs), 'running': sum(job.running() for job in asr_jobs)},
+                             'voice_count': len(engine.voice_ids),
                              'preview_count': len(previews), 'runtime':resource_info(config)}, status_code=200 if engine.ready else 503)
 
     async def signed_body(request, maximum):
@@ -166,28 +172,38 @@ def create_app(config: dict, engine=None, recognizer=None):
 
     @app.post('/v1/transcribe')
     async def transcribe(request: Request):
-        nonlocal asr_job
         raw, error = await signed_body(request, MAX_WAV_BYTES)
         if error is not None:
             return error
-        if not asr_worker:
+        if not asr_workers:
             return reject(503, 'speech recognition not configured')
         if not re.fullmatch(r'[1-9][0-9]{0,18}', request.query_params.get('user_id', '')):
             return reject(400, 'invalid user')
-        if asr_job is not None and not asr_job.done():
+        worker = min(asr_workers, key=RecognitionWorker.workload)
+        if sum(len(worker.pending) for worker in asr_workers) >= max_asr_requests:
             return reject(429, 'speech recognition busy')
         try:
             samples = decode_wav(raw)
         except ValueError:
             return reject(400, 'invalid audio')
-        asr_job = asr_worker.submit(recognizer.recognize, samples)
+        asr_job = worker.submit(samples)
+        result = asyncio.wrap_future(asr_job)
+        disconnect = asyncio.create_task(request.receive())
         try:
-            result = await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(asr_job)), timeout=20)
-        except TimeoutError:
+            done, _ = await asyncio.wait((result, disconnect), timeout=20,
+                                         return_when=asyncio.FIRST_COMPLETED)
+            if result in done:
+                return JSONResponse({'text': result.result()}, headers={'Cache-Control': 'no-store'})
+            if disconnect in done:
+                return Response(status_code=499)
             return reject(504, 'speech recognition timed out')
         except Exception:
             return reject(500, 'speech recognition failed')
-        return JSONResponse({'text': result}, headers={'Cache-Control': 'no-store'})
+        finally:
+            # A queued job can be removed. Running native work keeps its slot until it actually exits.
+            disconnect.cancel()
+            result.cancel()
+            asr_job.cancel()
 
     @app.post("/v1/stream")
     async def stream(request: Request):

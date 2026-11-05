@@ -1,8 +1,11 @@
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import hmac
 import io
 import time
+import threading
 import unittest
+from unittest.mock import patch
 import uuid
 import wave
 
@@ -53,3 +56,36 @@ class SignedRecognitionTests(unittest.TestCase):
             raw = wav(16000)
             self.assertFalse(client.get('/health').json()['asr'])
             self.assertEqual(client.post(self.target, content=raw, headers=self.headers(raw)).status_code, 503)
+
+    def test_two_recognizers_admit_twenty_and_reject_the_next(self):
+        release = threading.Event()
+        raw = wav(16000)
+
+        class HeldRecognizer(FakeRecognizer):
+            def recognize(self, samples):
+                if not release.wait(8):
+                    raise RuntimeError('test did not release inference')
+                return super().recognize(samples)
+
+        config = {'secret': SECRET, 'deployment_target': 'amd-4vcpu-12gb', 'asr_model_dir': 'unused'}
+        with patch('server.VoiceRecognizer', side_effect=lambda _: HeldRecognizer()):
+            app = create_app(config, FakeEngine())
+        with TestClient(app) as client, ThreadPoolExecutor(max_workers=20) as submitters:
+            jobs = [submitters.submit(client.post, self.target, content=raw, headers=self.headers(raw))
+                    for _ in range(20)]
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    capacity = client.get('/health').json()['asr_capacity']
+                    if capacity['active'] == 20 and capacity['running'] == 2:
+                        break
+                    time.sleep(.02)
+                self.assertEqual(capacity, {'workers': 2, 'limit': 20, 'active': 20, 'running': 2})
+                self.assertEqual(client.post(self.target, content=raw, headers=self.headers(raw)).status_code, 429)
+            finally:
+                release.set()
+            for job in jobs:
+                response = job.result(timeout=8)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json(), {'text': '查询工单。'})
+            self.assertEqual(client.get('/health').json()['asr_capacity']['active'], 0)
