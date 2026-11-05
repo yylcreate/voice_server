@@ -54,6 +54,7 @@ textarea{display:block;width:100%;height:164px;min-height:110px;max-height:420px
         </div>
         <div class="play-options"><label class="check"><input id="autoPlay" type="checkbox" checked>边生成边播放</label><span class="tip">Ctrl + Enter 开始测试</span></div>
         <div class="input-help">“开始测试”不复用上一次测试的音频；“同文复测”尝试复用上次结果，实际复用情况会单独显示。</div>
+        <p><a href="/asr">打开线上语音转文字</a></p>
       </form>
     </div></section>
     <section class="panel"><div class="panel-body">
@@ -71,6 +72,14 @@ textarea{display:block;width:100%;height:164px;min-height:110px;max-height:420px
       <div id="resultAudio" class="result-audio" hidden><div class="audio-heading"><span>本次完整音频 · 可本地重播</span><a id="downloadWav" class="download">下载 WAV</a></div><audio id="audio" controls preload="metadata"></audio></div>
     </div></section>
   </div>
+  <section class="panel" id="batchPanel" hidden><div class="panel-body">
+    <h2 class="section-title">20 路并发测试</h2>
+    <label class="field-label" for="batchText">每路测试短句</label>
+    <input id="batchText" type="text" value="请核对工单。" maxlength="100">
+    <div class="controls"><button id="batchStart" class="action start" type="button">同时发起 20 路</button><button id="batchStop" class="action stop" type="button" disabled>停止批量测试</button></div>
+    <p id="batchStatus" role="status">同一音色，每路独立合成。</p>
+    <div class="table-wrap"><table><thead><tr><th>请求</th><th>状态</th><th>首段 / 秒</th><th>完整 / 秒</th></tr></thead><tbody id="batchBody"></tbody></table></div>
+  </div></section>
   <section class="panel history"><div class="history-head"><h2 class="section-title">测试记录</h2><button class="quiet" id="exportBtn" type="button" disabled>导出记录</button></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>音色</th><th>方式</th><th>首段 / 秒</th><th>完整 / 秒</th><th>音频 / 秒</th><th>结果</th></tr></thead><tbody id="historyBody"><tr><td class="empty" colspan="7">完成一次测试后，这里会保留计时结果。</td></tr></tbody></table></div></section>
   <!-- 原页脚固定链接voice.6xmu.com；国内对照须显示启动时实际目标，避免混淆。--yyl -->
   <footer class="footnote"><span>测试目标：<a id="serviceEndpoint" target="_blank" rel="noreferrer">正在读取配置</a>　·　本页仅在本机开放</span><span>计时包含网络传输；播放启动为浏览器调度估算，合成完成与播放结束分别判断。</span></footer>
@@ -83,6 +92,7 @@ const SHORT_ZH='你好！我是小雅，你的精密制造智能工作伙伴。'
 const SHORT_EN='Hello! I am Xiaoya, your intelligent manufacturing partner.';
 const FULL_EN='Hello! I am Xiaoya, your intelligent manufacturing partner. I can help you check work orders and track production progress. How can I help you today?';
 const app={config:null,ready:false,healthBusy:false,current:null,previous:null,history:[],context:null,gain:null,nodes:new Set(),nextAudioAt:0,wave:[],blobUrl:null};
+let batch = null;
 const seconds=ms=>ms==null?'—':(ms/1000).toFixed(2);
 const metric=(id,ms,estimate=false)=>{$(id).replaceChildren(document.createTextNode(ms==null?'—':(estimate?'≈ ':'')+seconds(ms)));const unit=document.createElement('small');unit.textContent='秒';$(id).append(unit);};
 const phase=(text,kind='')=>{$('phase').textContent=text;$('phase').className='phase '+kind;};
@@ -90,8 +100,12 @@ function voice(){return app.config?.voices.find(v=>v.id===$('voice').value);}
 function count(){ $('charCount').textContent=Array.from($('text').value).length.toLocaleString()+' 字';refreshControls(); }
 function refreshControls(){
   const running=!!app.current?.active;
-  $('startBtn').disabled=!app.config||!app.ready||running||!$('text').value.trim();
-  $('repeatBtn').disabled=running||!app.ready||!app.previous||app.previous.text!==$('text').value||app.previous.voice!==$('voice').value;
+  $('batchPanel').hidden=app.config?.parallel!==20;
+  $('batchStart').disabled=running||!!batch||!app.ready||!$('batchText').value.trim();
+  $('batchStop').disabled=!batch;
+  $('batchText').disabled=!!batch;
+  $('startBtn').disabled=!app.config||!app.ready||running||!!batch||!$('text').value.trim();
+  $('repeatBtn').disabled=running||!!batch||!app.ready||!app.previous||app.previous.text!==$('text').value||app.previous.voice!==$('voice').value;
   $('stopBtn').disabled=!running&&app.nodes.size===0&&!($('audio').currentTime>0&&!$('audio').paused);
   ['voice','text','shortBtn','greetingBtn','autoPlay'].forEach(id=>$(id).disabled=running||!app.config);
   $('exportBtn').disabled=app.history.length===0;
@@ -196,6 +210,7 @@ function onEvent(run,message){
   if(app.current!==run||run.cancelled)return;
   if(message.type==='start'){phase('已发起请求，正在连接线上服务…');return;}
   if(message.type==='connected'){run.headersMs=message.at_ms;setStage('stageConnected','connectedTime',message.at_ms);setStage('stageFirst','firstTime',null,true);phase('线上已响应，正在等待第一段音频…');checkHealth();return;}
+  if(message.type==='waiting')return;
   if(message.type==='metadata'){if(message.rate!==24000||message.channels!==1||message.format!=='pcm_s16le'||message.voice_id!==run.voice)throw new Error('音频格式不匹配');run.total=message.total;return;}
   if(message.type==='segment'){
     run.cached.push(message.cached);const chip=document.createElement('span');chip.className='segment'+(message.cached?' reused':'');chip.textContent='第'+(message.segment+1)+'段 · '+(message.cached?'已复用':'新生成');$('segments').append(chip);
@@ -214,6 +229,7 @@ function onEvent(run,message){
   throw new Error('未知测试事件');
 }
 async function startTest(mode){
+  if(batch)return;
   if(!app.config||app.current?.active)return;
   const text=$('text').value,selected=voice();if(!text.trim()||!selected)return;
   if(mode==='repeat'&&(!app.previous||app.previous.text!==text||app.previous.voice!==selected.id))return;
@@ -247,6 +263,58 @@ async function startTest(mode){
     if(app.current===run){run.active=false;run.endPerf=run.endPerf||performance.now();refreshControls();checkHealth();}
   }
 }
+async function startBatch(){
+  const text=$('batchText').value.trim();
+  if(!text||batch||app.current?.active||!app.ready||app.config.parallel!==20)return;
+  const id=voice().id, token=app.config.token;
+  $('batchBody').replaceChildren();
+  const jobs=Array.from({length:20},(_,index)=>{
+    const row=$('batchBody').insertRow();
+    const cells=[index+1,'连接中','—','—'].map(value=>{const cell=row.insertCell();cell.textContent=value;return cell;});
+    return {id:crypto.randomUUID().replaceAll('-',''),cells};
+  });
+  const controller=new AbortController();batch={controller};refreshControls();
+  const byId=new Map(jobs.map(job=>[job.id,job]));
+  let completed=0;
+  $('batchStatus').textContent='正在提交 20 路';
+  try{
+      const response=await fetch('/api/batch',{method:'POST',signal:controller.signal,
+        headers:{'Content-Type':'application/json','X-Voice-Test-Token':token},
+        body:JSON.stringify({run_ids:jobs.map(job=>job.id),text,voice_id:id})});
+      if(!response.ok)throw Error((await response.json()).error||'HTTP '+response.status);
+      const reader=response.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer='';
+      for(;;){
+        const part=await reader.read();if(part.done)break;
+        buffer+=part.value;
+        const lines=buffer.split('\n');buffer=lines.pop();
+        for(const line of lines){
+          if(!line)continue;
+          const message=JSON.parse(line);
+          if(message.type==='batch_wait')continue;
+          const job=byId.get(message.run_id);if(!job)throw Error('请求标识不匹配');
+          const [,state,first,elapsed]=job.cells;
+          if(message.type==='connected')state.textContent='等待音频';
+          if(message.type==='first_pcm')state.textContent='接收音频';
+          if(message.type==='done'&&message.pcm_bytes&&!message.cached.some(Boolean)){
+            state.textContent='完成';first.textContent=seconds(message.first_pcm_ms);elapsed.textContent=seconds(message.complete_ms);
+            completed++;$('batchStatus').textContent='已完成 '+completed+' / 20';
+          }
+          if(message.type==='error'||message.type==='cancelled'){state.textContent=message.message;job.ended=true;}
+          if(message.type==='done')job.ended=true;
+        }
+      }
+      if(buffer.trim()||jobs.some(job=>!job.ended))throw Error('音频返回提前结束');
+      $('batchStatus').textContent='完成 '+completed+' / 20';
+  }catch(error){
+    controller.abort();
+    for(const job of jobs){if(!job.ended)job.cells[1].textContent=error.name==='AbortError'?'已停止':'未完成';}
+    $('batchStatus').textContent='完成 '+completed+' / 20 · '+(error.name==='AbortError'?'已停止':error.message);
+  }finally{batch=null;refreshControls();checkHealth();}
+}
+function stopBatch(){batch?.controller.abort();}
+$('batchStart').onclick=startBatch;$('batchStop').onclick=stopBatch;$('batchText').oninput=refreshControls;
+window.addEventListener('pagehide',stopBatch);
 function stopTest(){
   const run=app.current;stopSound();if(!run)return;
   if(!run.active){phase('合成已完成，播放已停止','complete');return;}

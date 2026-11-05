@@ -18,7 +18,7 @@ class RuntimeProfileTests(unittest.TestCase):
                   'catalog_path':'private-catalog','ffmpeg':'ffmpeg','custom':'retained'}
         before=dict(original);result=resource_config(original,TARGET)
         self.assertEqual(original,before)
-        self.assertEqual((result['threads'],result['max_streams'],result['ffmpeg_threads']),(2,2,1))
+        self.assertEqual((result['threads'],result['max_streams'],result['ffmpeg_threads']),(2,20,1))
         for key in ('secret','model_dir','catalog_path','ffmpeg','custom'):
             self.assertEqual(result[key],original[key])
         self.assertEqual(resource_config(result),result)
@@ -51,7 +51,7 @@ class RuntimeProfileTests(unittest.TestCase):
 
 
 class AdmissionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_target_accepts_two_jobs_rejects_third_and_recovers_after_close(self):
+    async def test_target_accepts_twenty_jobs_rejects_next_and_recovers_after_close(self):
         app=create_app({'secret':SECRET,'deployment_target':TARGET},FakeEngine())
         endpoint=next(route.endpoint for route in app.routes if route.path=='/v1/stream')
         health=next(route.endpoint for route in app.routes if route.path=='/health')
@@ -69,14 +69,14 @@ class AdmissionTests(unittest.IsolatedAsyncioTestCase):
                    'server':('localhost',80)}
             return await endpoint(Request(scope,receive))
         try:
-            for i in range(2):
+            for i in range(20):
                 response=await request();self.assertEqual(response.status_code,200)
                 held.append(response)
                 # 首帧后保持消费者背压，让活动名额真实占用且关闭过程有明确边界。--yyl
                 await asyncio.wait_for(anext(response.body_iterator),3)
             self.assertEqual((await request()).status_code,429)
             import json
-            self.assertEqual(json.loads((await health()).body)['active'],2)
+            self.assertEqual(json.loads((await health()).body)['active'],20)
         finally:
             for response in held:
                 await asyncio.wait_for(response.body_iterator.aclose(),3)

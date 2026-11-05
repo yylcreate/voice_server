@@ -1,9 +1,11 @@
 """Loopback-only PC tester for the real HTTPS voice service; signing stays on this PC. --yyl"""
 from __future__ import annotations
 import argparse,base64,hashlib,hmac,http.client,json,pathlib,re,secrets,socket,ssl,struct,sys,threading,time,urllib.parse,uuid
+from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from dataclasses import dataclass,field
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+from queue import Empty, SimpleQueue
 
 UPSTREAM='https://voice.6xmu.com'
 HOST='voice.6xmu.com'
@@ -11,6 +13,7 @@ AGENT='Xiaoya-Voice-Deployment-Probe/1.0'
 MAGIC=b'XYVOICE1'
 MAX_PCM=32*1024*1024
 PAGE=pathlib.Path(__file__).with_name('pc_test.html')
+ASR_PAGE=pathlib.Path(__file__).with_name('pc_recognition.html')
 GREETING='你好！我是小雅，你的精密制造智能工作伙伴。我可以为你实时查询生产工单、追踪加工进度。今天有什么我可以帮你的？'
 
 class TestError(Exception):
@@ -61,6 +64,7 @@ class VoiceWire:
                 self.complete=True
                 if self.pending:raise TestError('完成帧之后仍有未知数据',502)
             elif kind==5:raise TestError('线上语音生成失败，请重试',502)
+            elif kind==6 and data=={'waiting':True}:events.append(('waiting',data))
             else:raise TestError('线上返回了未知音频帧',502)
         return events
     def finish(self):
@@ -68,13 +72,18 @@ class VoiceWire:
         return {'pcm_bytes':self.pcm_bytes,'audio_seconds':self.pcm_bytes/48000,'segments':len(self.cached),
                 'cached':self.cached,'pcm_sha256':self.digest.hexdigest()}
 
-def sign(secret,uid,text,voice):
-    path='/v1/stream?user_id='+str(uid)
-    body=json.dumps({'user_id':uid,'request_id':uuid.uuid4().hex,'text':text,'voice_id':voice},ensure_ascii=False,separators=(',',':')).encode()
+def sign_request(secret,path,body,content_type):
     stamp=str(int(time.time()));nonce=uuid.uuid4().hex
     message='\n'.join(['POST',path,stamp,nonce,hashlib.sha256(body).hexdigest()])
-    return path,body,{'Content-Type':'application/json','User-Agent':AGENT,'Accept-Encoding':'identity','Connection':'close',
+    return {'Content-Type':content_type,'User-Agent':AGENT,'Accept-Encoding':'identity','Connection':'close',
         'X-Hht-Timestamp':stamp,'X-Hht-Nonce':nonce,'X-Hht-Signature':hmac.new(secret.encode(),message.encode(),hashlib.sha256).hexdigest()}
+
+def sign(secret,uid,text,voice,*,wait_frames=False):
+    path='/v1/stream?user_id='+str(uid)
+    payload={'user_id':uid,'request_id':uuid.uuid4().hex,'text':text,'voice_id':voice}
+    if wait_frames:payload['wait_frames']=True
+    body=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
+    return path,body,sign_request(secret,path,body,'application/json')
 
 @dataclass(repr=False)
 class Job:
@@ -160,10 +169,13 @@ class Settings:
             self.voices[identity]={'id':identity,'name':name,'language':language,'description':str(row.get('description',''))[:100]}
         self.default=catalog['default_voice_id']
         if self.default not in self.voices or not 1<=len(self.voices)<=32:raise TestError('默认音色不可用')
-        self.token=secrets.token_hex(32);self.jobs=Jobs();self.slots=threading.BoundedSemaphore(2)
+        self.parallel=20 if self.upstream==UPSTREAM else 2
+        self.token=secrets.token_hex(32);self.jobs=Jobs();self.slots=threading.BoundedSemaphore(self.parallel)
+        self.asr_slot=threading.BoundedSemaphore(1)
     # 原公开endpoint使用UPSTREAM；显示本进程实际固定的目标，避免国内对照误标为正式服务。--yyl
     def public(self):return {'endpoint':self.upstream,'voices':list(self.voices.values()),'default_voice_id':self.default,
-        'greeting':GREETING,'token':self.token,'max_characters':60000,'max_pcm_bytes':MAX_PCM,'protocol':'XYVOICE1'}
+        'greeting':GREETING,'token':self.token,'max_characters':60000,'max_pcm_bytes':MAX_PCM,'protocol':'XYVOICE1',
+        'parallel':self.parallel}
     # 原 HTTPSConnection(HOST,443,...)；远端仍强制校验证书，HTTP仅供本机SSH隧道。--yyl
     def connect(self):
         if self.target.scheme=='https':
@@ -206,6 +218,8 @@ class Handler(BaseHTTPRequestHandler):
             self.safe_request()
             if self.path=='/':
                 raw=PAGE.read_bytes();self.send_headers(200,'text/html; charset=utf-8',len(raw));self.wfile.write(raw)
+            elif self.path=='/asr':
+                raw=ASR_PAGE.read_bytes();self.send_headers(200,'text/html; charset=utf-8',len(raw));self.wfile.write(raw)
             elif self.path=='/api/config':self.json(200,self.settings.public())
             elif self.path=='/api/health':
                 start=time.perf_counter();connection=self.settings.connect()
@@ -224,16 +238,21 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:pass
     def do_POST(self):
         try:
-            self.safe_request(True);body=self.read_json()
+            self.safe_request(True)
+            if self.path=='/api/transcribe':
+                self.transcribe();return
+            body=self.read_json()
             if self.path=='/api/cancel':
                 if set(body)!={'run_id'}:raise TestError('取消请求无效')
                 self.json(200,{'stopped':True,'registered':self.settings.jobs.cancel(body['run_id'])});return
+            if self.path=='/api/batch':
+                self.batch(body);return
             if self.path!='/api/synthesize':self.json(404,{'error':'Not found'});return
             allowed={'run_id','text','voice_id','mode','previous_id'}
             if set(body)-allowed or not isinstance(body.get('text'),str)or not 1<=len(body['text'].strip())<=60000:raise TestError('请输入1～60000字的测试文字')
             voice=body.get('voice_id')
             if not isinstance(voice,str)or voice not in self.settings.voices:raise TestError('请选择可用音色')
-            if not self.settings.slots.acquire(blocking=False):raise TestError('本机已有两路测试，请先停止或等待完成',429)
+            if not self.settings.slots.acquire(blocking=False):raise TestError('本机测试已达活动请求上限',429)
             try:
                 job=self.settings.jobs.begin(body.get('run_id'),body['text'],voice,body.get('mode'),body.get('previous_id'))
                 self.stream(job,body['text'],voice)
@@ -243,13 +262,76 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError,ValueError,http.client.HTTPException):
             try:self.json(502,{'error':'本机测试连接失败，请重试'})
             except OSError:pass
-    def stream(self,job,text,voice):
+    def transcribe(self):
+        if self.headers.get('Content-Type')!='audio/wav':raise TestError('请提交 WAV 录音',415)
+        size=int(self.headers.get('Content-Length','0'))
+        if not 44<=size<=964096:raise TestError('录音长度无效，最长 30 秒',413)
+        if not self.settings.asr_slot.acquire(blocking=False):raise TestError('已有录音正在识别',429)
+        conn=None
+        try:
+            self.connection.settimeout(8)
+            audio=self.rfile.read(size)
+            if len(audio)!=size:raise TestError('录音上传不完整')
+            path='/v1/transcribe?user_id='+str(1800000000+secrets.randbelow(100000000))
+            start=time.perf_counter();conn=self.settings.connect();conn.connect()
+            if conn.sock is not None:conn.sock.settimeout(30)
+            conn.request('POST',path,body=audio,headers=sign_request(self.settings.secret,path,audio,'audio/wav'))
+            response=conn.getresponse();raw=response.read(65537)
+            if response.status in (400,429):raise TestError('录音格式无效或识别服务正忙',response.status)
+            if response.status!=200 or len(raw)>65536:raise TestError('线上识别返回 HTTP '+str(response.status),502)
+            data=json.loads(raw)
+            if not isinstance(data,dict) or not isinstance(data.get('text'),str):raise TestError('线上识别响应无效',502)
+            self.json(200,{'text':data['text'],'wall_s':round(time.perf_counter()-start,3)})
+        finally:
+            if conn is not None:conn.close()
+            self.settings.asr_slot.release()
+
+    def send_event(self,message):
+        raw=json.dumps(message,ensure_ascii=False,separators=(',',':')).encode()+b'\n'
+        self.wfile.write(('%x\r\n'%len(raw)).encode()+raw+b'\r\n');self.wfile.flush()
+
+    def batch(self,body):
+        ids,text,voice=body.get('run_ids'),body.get('text'),body.get('voice_id')
+        if (self.settings.parallel!=20 or set(body)!={'run_ids','text','voice_id'} or
+                not isinstance(ids,list) or len(ids)!=20 or
+                any(not isinstance(i,str) or not re.fullmatch('[a-f0-9]{32}',i) for i in ids) or len(set(ids))!=20 or
+                not isinstance(text,str) or not 1<=len(text.strip())<=100 or not isinstance(voice,str) or voice not in self.settings.voices):
+            raise TestError('请输入 1～100 字并选择音色，发起 20 路测试')
+        acquired=0
+        jobs=[]
+        try:
+            for _ in ids:
+                if not self.settings.slots.acquire(blocking=False):raise TestError('请先结束其他合成测试',429)
+                acquired+=1
+            for identity in ids:
+                jobs.append(self.settings.jobs.begin(identity,text,voice,'fresh',None))
+            events=SimpleQueue()
+            self.send_headers(200,'application/x-ndjson; charset=utf-8')
+            with ThreadPoolExecutor(max_workers=20,thread_name_prefix='xiaoya-pc') as pool:
+                requests=[pool.submit(self.stream,job,text,voice,events.put) for job in jobs]
+                try:
+                    while not all(request.done() for request in requests) or not events.empty():
+                        try:message=events.get(timeout=2)
+                        except Empty:message={'type':'batch_wait'}
+                        self.send_event(message)
+                    self.wfile.write(b'0\r\n\r\n');self.wfile.flush()
+                except OSError:
+                    for job in jobs:job.stop()
+        finally:
+            for job in jobs:
+                if job.state=='running':
+                    job.stop();self.settings.jobs.finish(job,False)
+            for _ in range(acquired):self.settings.slots.release()
+
+    def stream(self,job,text,voice,sink=None):
         succeeded=False;stream_started=False;response=None
         def emit(kind,**data):
-            raw=json.dumps({'type':kind,'at_ms':round((time.perf_counter()-job.started)*1000,3),**data},ensure_ascii=False,separators=(',',':')).encode()+b'\n'
-            self.wfile.write(('%x\r\n'%len(raw)).encode()+raw+b'\r\n');self.wfile.flush()
+            message={'type':kind,'at_ms':round((time.perf_counter()-job.started)*1000,3),**data}
+            if sink is None:self.send_event(message)
+            elif kind in ('connected','first_pcm','done','error','cancelled'):sink({**message,'run_id':job.id})
         try:
-            self.send_headers(200,'application/x-ndjson; charset=utf-8');stream_started=True
+            if sink is None:
+                self.send_headers(200,'application/x-ndjson; charset=utf-8');stream_started=True
             # 原 endpoint=UPSTREAM；国内/线上各进程固定自己的目标。--yyl
             emit('start',run_id=job.id,mode=job.mode,endpoint=self.settings.upstream)
             connection=self.settings.connect()
@@ -260,7 +342,7 @@ class Handler(BaseHTTPRequestHandler):
             # 握手使用10秒预算，音频等待另设45秒；不能依赖getresponse后可能已清空的sock。--yyl
             if job.transport is not None:job.transport.settimeout(45)
             if job.cancelled.is_set():raise Cancelled()
-            path,raw,headers=sign(self.settings.secret,job.uid,text,voice)
+            path,raw,headers=sign(self.settings.secret,job.uid,text,voice,wait_frames=self.settings.parallel>=20)
             connection.request('POST',path,body=raw,headers=headers);response=connection.getresponse()
             if job.cancelled.is_set():raise Cancelled()
             if response.status!=200:
@@ -278,8 +360,10 @@ class Handler(BaseHTTPRequestHandler):
                 for kind,data in wire.feed(piece):
                     if job.cancelled.is_set():raise Cancelled()
                     if kind=='pcm':
-                        if first is None:first=(time.perf_counter()-job.started)*1000
-                        emit('pcm',audio=base64.b64encode(data).decode('ascii'),bytes=len(data))
+                        if first is None:
+                            first=(time.perf_counter()-job.started)*1000
+                            if sink is not None:emit('first_pcm')
+                        if sink is None:emit('pcm',audio=base64.b64encode(data).decode('ascii'),bytes=len(data))
                     else:emit(kind,**data)
             result=wire.finish()
             if job.cancelled.is_set():raise Cancelled()
@@ -307,6 +391,7 @@ class Handler(BaseHTTPRequestHandler):
 class PCServer(ThreadingHTTPServer):
     daemon_threads=True
     allow_reuse_address=True
+    request_queue_size=64
 
 def make_server(settings,port):
     server=PCServer(('127.0.0.1',port),Handler);server.settings=settings;return server

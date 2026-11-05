@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小雅 · 线上语音转文字</title>
+<style>
+body{margin:7vh auto;padding:20px;max-width:730px;background:#f2f5fa;color:#162c45;font:16px/1.65 system-ui}
+main{padding:24px;background:white;border:1px solid #dbe5ef;border-radius:14px}h1{margin-top:0}
+button,input,textarea{font:inherit}button{padding:8px 14px;margin:4px 6px 4px 0}textarea{box-sizing:border-box;width:100%;min-height:140px;padding:12px}
+</style>
+<main>
+<h1>小雅 · 线上语音转文字</h1>
+<p><a href="/">返回语音生成测试</a></p>
+<p>录音或选择音频文件。录音通过本机签名代理发送到线上识别，最长 30 秒。</p>
+<button id="record">开始录音</button><button id="stop" disabled>完成识别</button>
+<label>选择音频 <input id="file" type="file" accept="audio/*,.wav"></label>
+<p id="status" role="status">等待音频</p>
+<textarea id="result" aria-label="识别结果" placeholder="识别结果可以直接编辑"></textarea>
+</main>
+<script>
+const record = document.querySelector('#record'), stop = document.querySelector('#stop');
+const file = document.querySelector('#file');
+const status = document.querySelector('#status'), result = document.querySelector('#result');
+let recording, timer, token, busy = false;
+
+async function submit(source) {
+  record.disabled = file.disabled = busy = true;
+  result.value = '';
+  status.textContent = '正在识别…';
+  let audio;
+  try {
+    if (source.size > 15 * 1024 * 1024) throw Error('请选择 15 MB 以内的音频');
+    audio = new AudioContext();
+    const decoded = await audio.decodeAudioData(await source.arrayBuffer());
+    if (!decoded.duration || decoded.duration > 30.5) throw Error('录音最长 30 秒');
+    const frames = Math.min(480000, Math.ceil(decoded.duration * 16000));
+    const renderer = new OfflineAudioContext(1, frames, 16000);
+    const input = renderer.createBufferSource();
+    input.buffer = decoded;
+    input.connect(renderer.destination);
+    input.start();
+    const samples = (await renderer.startRendering()).getChannelData(0);
+    const wav = new DataView(new ArrayBuffer(44 + 2 * samples.length));
+    const tag = (offset, value) => [...value].forEach((c, index) => wav.setUint8(offset + index, c.charCodeAt(0)));
+    tag(0,'RIFF'); wav.setUint32(4,wav.byteLength-8,true); tag(8,'WAVEfmt ');
+    wav.setUint32(16,16,true); wav.setUint16(20,1,true); wav.setUint16(22,1,true);
+    wav.setUint32(24,16000,true); wav.setUint32(28,32000,true);
+    wav.setUint16(32,2,true); wav.setUint16(34,16,true); tag(36,'data'); wav.setUint32(40,2*samples.length,true);
+    samples.forEach((sample, index) => wav.setInt16(44 + index*2, Math.max(-32768, Math.min(32767, Math.round(sample*32768))),true));
+    const response = await fetch('/api/transcribe', {method:'POST', headers:{'Content-Type':'audio/wav','X-Voice-Test-Token':token}, body:wav.buffer});
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error);
+    result.value = data.text;
+    status.textContent = data.text ? `识别完成，服务用时 ${data.wall_s.toFixed(2)} 秒` : '没有检测到清晰语音';
+  } catch (error) {
+    status.textContent = error.message || '识别失败';
+  } finally {
+    if (audio) await audio.close().catch(() => {});
+    record.disabled = file.disabled = busy = false;
+  }
+}
+
+record.onclick = async () => {
+  if (busy || recording) return;
+  let stream;
+  record.disabled = file.disabled = true;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const parts = [];
+    recording = new MediaRecorder(stream);
+    recording.ondataavailable = event => parts.push(event.data);
+    recording.onerror = () => {
+      clearTimeout(timer);
+      stream.getTracks().forEach(track => track.stop());
+      recording.onstop = null;
+      recording = null;
+      stop.disabled = true;
+      record.disabled = file.disabled = false;
+      status.textContent = '录音中断，请重试';
+    };
+    recording.onstop = () => {
+      clearTimeout(timer);
+      stream.getTracks().forEach(track => track.stop());
+      const source = new Blob(parts, {type: recording.mimeType});
+      recording = null;
+      stop.disabled = true;
+      submit(source);
+    };
+    recording.start();
+    stop.disabled = false;
+    status.textContent = '正在录音';
+    timer = setTimeout(() => stop.click(), 29750);
+  } catch (error) {
+    if (stream) stream.getTracks().forEach(track => track.stop());
+    recording = null;
+    record.disabled = file.disabled = false;
+    status.textContent = '麦克风不可用，请检查浏览器权限或选择音频文件';
+  }
+};
+stop.onclick = () => { if (recording?.state === 'recording') recording.stop(); };
+file.onchange = () => { if (file.files.length && !recording && !busy) submit(file.files[0]); file.value = ''; };
+async function ready() {
+  record.disabled = file.disabled = true;
+  try {
+    const response = await fetch('/api/config', {cache:'no-store'});
+    if (!response.ok) throw Error('签名代理暂不可用');
+    const config = await response.json();
+    token = config.token;
+    status.textContent = '线上目标 ' + config.endpoint;
+    record.disabled = file.disabled = false;
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+ready();
+</script>
+</html>

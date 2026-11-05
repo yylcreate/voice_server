@@ -61,6 +61,26 @@ async def speech_parts(engine, owner, parts, voice_id, cancelled, disconnected):
                 if result is not None:result.cancel()
 
 
+async def wait_frames(parts, interval=6):
+    """Emit a wait marker without cancelling the outstanding synthesis future."""
+    pending = None
+    try:
+        while True:
+            pending = asyncio.create_task(anext(parts))
+            while not (await asyncio.wait({pending}, timeout=interval))[0]:
+                yield None
+            try:
+                result = pending.result()
+            except StopAsyncIteration:
+                return
+            pending = None
+            yield result
+    finally:
+        if pending is not None:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+
+
 def create_app(config: dict, engine=None, recognizer=None):
     config=resource_config(config)
     if len(config.get("secret", "")) < 32:
@@ -177,7 +197,10 @@ def create_app(config: dict, engine=None, recognizer=None):
         try:
             body = json.loads(raw)
             required={"user_id", "request_id", "text"}
-            if not isinstance(body, dict) or not required.issubset(body) or set(body)-required-{'voice_id'}:
+            if not isinstance(body, dict) or not required.issubset(body) or set(body)-required-{'voice_id', 'wait_frames'}:
+                raise ValueError()
+            keepalive = body.get('wait_frames', False)
+            if type(keepalive) is not bool:
                 raise ValueError()
             uid = body["user_id"]
             if type(uid) is not int or uid <= 0 or str(uid) != request.query_params.get("user_id"):
@@ -210,25 +233,34 @@ def create_app(config: dict, engine=None, recognizer=None):
 
         async def audio():
             started = False
+            magic = MAGIC
             delivered = 0
             try:
                 async with aclosing(speech_parts(engine, uid, parts, speaker, cancelled, request.is_disconnected)) as prepared:
-                    async for index, result in prepared:
-                        if not started:
-                            yield MAGIC + frame(1, {"rate": result.rate, "channels": 1, "format": "pcm_s16le", "total": len(parts),'voice_id':voice_id})
-                            started = True
-                        yield frame(2, {"segment": index, "total": len(parts), "cached": result.cached})
-                        for offset in range(0, len(result.data), 8192):
-                            yield frame(3, result.data[offset:offset+8192])
-                            if await request.is_disconnected():
-                                return
-                        delivered = index + 1
+                    if keepalive:
+                        yield magic + frame(6, {"waiting": True})
+                        magic = b''
+                    async with aclosing(wait_frames(prepared) if keepalive else prepared) as events:
+                        async for event in events:
+                            if event is None:
+                                yield frame(6, {"waiting": True})
+                                continue
+                            index, result = event
+                            if not started:
+                                yield magic + frame(1, {"rate": result.rate, "channels": 1, "format": "pcm_s16le", "total": len(parts),'voice_id':voice_id})
+                                started = True
+                            yield frame(2, {"segment": index, "total": len(parts), "cached": result.cached})
+                            for offset in range(0, len(result.data), 8192):
+                                yield frame(3, result.data[offset:offset+8192])
+                                if await request.is_disconnected():
+                                    return
+                            delivered = index + 1
                 if delivered == len(parts) and not cancelled.is_set() and not await request.is_disconnected():
                     yield frame(4, {"complete": True, "segments": len(parts)})
             except asyncio.CancelledError:
                 raise
             except Exception:
-                if not started:
+                if not started and not keepalive:
                     yield MAGIC
                 yield frame(5, {"message": "语音生成失败，请重试"})
             finally:

@@ -124,6 +124,16 @@ class VoiceTests(unittest.TestCase):
             self.assertEqual(kinds[-1],4)
             self.assertEqual(kinds.count(3),1)
 
+    def test_wait_frame_is_opt_in_and_preserves_the_pcm_stream(self):
+        from tools.pc_test import VoiceWire
+        with TestClient(create_app({'secret':SECRET}, FakeEngine())) as client:
+            raw,headers=signed({**self.body(),'wait_frames':True})
+            response=client.post('/v1/stream?user_id=10133',content=raw,headers=headers)
+            self.assertEqual(response.status_code,200)
+            wire=VoiceWire('xiaoya-a')
+            self.assertEqual(wire.feed(response.content)[0],('waiting',{'waiting':True}))
+            self.assertGreater(wire.finish()['pcm_bytes'],0)
+
     def test_unsigned_replay_and_owner_mismatch_rejected(self):
         with TestClient(create_app({"secret":SECRET}, FakeEngine())) as client:
             self.assertEqual(client.post("/v1/stream?user_id=10133",json=self.body()).status_code,403)

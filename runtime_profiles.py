@@ -11,13 +11,13 @@ def resource_config(config: dict, target: str | None = None) -> dict:
     result=dict(config)
     result['deployment_target']=selected
     if selected==TARGET:
-        # 四vCPU主机还需运行业务服务，固定留出计算余量并缩短等待队列。--yyl
-        result.update(threads=2,max_streams=2,ffmpeg_threads=1)
+        # 允许二十条签名请求排队，同一时间仍由一个模型工作线程推理。--yyl
+        result.update(threads=2,max_streams=20,ffmpeg_threads=1)
     else:
         result.setdefault('threads',4)
         result.setdefault('max_streams',4)
         result.setdefault('ffmpeg_threads',None)
-    for key,maximum in (('threads',8),('max_streams',16),('ffmpeg_threads',8)):
+    for key,maximum in (('threads',8),('max_streams',20),('ffmpeg_threads',8)):
         value=result[key]
         if key=='ffmpeg_threads'and value is None:continue
         if type(value)is not int or not 1<=value<=maximum:
