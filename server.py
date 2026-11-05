@@ -24,6 +24,7 @@ from runtime_profiles import resource_config, resource_info
 MAGIC = b"XYVOICE1"
 MEDIA = "application/vnd.yilian.xiaoya-voice"
 ASR_RESPONSE_SECONDS = 55
+ASR_QUEUED_SECONDS = 240
 
 
 def frame(kind: int, data: bytes | dict) -> bytes:
@@ -188,6 +189,28 @@ def create_app(config: dict, engine=None, recognizer=None):
         except ValueError:
             return reject(400, 'invalid audio')
         asr_job = worker.submit(samples)
+        if request.query_params.get('wait') == '1':
+            async def recognition_json():
+                result = asyncio.wrap_future(asr_job)
+                deadline = time.monotonic() + ASR_QUEUED_SECONDS
+                try:
+                    yield b' '
+                    while not result.done() and time.monotonic() < deadline:
+                        done, _ = await asyncio.wait({result}, timeout=min(8, deadline - time.monotonic()))
+                        if not done:
+                            yield b' '
+                    if result.done():
+                        payload = {'text': result.result()}
+                    else:
+                        payload = {'error': 'speech recognition timed out', 'status': 504}
+                    yield json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode()
+                except Exception:
+                    yield b'{"error":"speech recognition failed","status":500}'
+                finally:
+                    result.cancel()
+                    asr_job.cancel()
+            return StreamingResponse(recognition_json(), media_type='application/json',
+                                     headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
         result = asyncio.wrap_future(asr_job)
         disconnect = asyncio.create_task(request.receive())
         try:

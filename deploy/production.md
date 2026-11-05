@@ -18,7 +18,7 @@
 
 选用完整 ZipVoice 的音色使用 `model_variant: full`。在已有私有模型目录的 `full/` 下准备 `text_encoder.onnx` 与 `fm_decoder.onnx`，并确认词表和声码器与当前前端兼容。仅在目录使用该档时加载这组权重。按目标主机的内存限制和首段返回时间实测后再启用。
 
-启用识别前，在已挂载的模型目录内单独准备 SenseVoice INT8 的 `model.int8.onnx` 和 `tokens.txt`，在私有配置设置 `asr_model_dir`，例如 `/models/zipvoice/sensevoice`。模型文件与部署源码分开保存。核对健康页 `asr: true`，用签名 WAV 样本验收后，在手持端业务后台配置 `HHT_VOICE_ASR_ENABLED=1`。识别和合成分别接纳请求，识别支持 20 条活动录音，其中最多两条同时推理。每个识别线程单独持有一个 SenseVoice 实例，按待处理音频长度选择负载较轻的线程。健康页 `asr_capacity` 展示限额、活动数和正在推理数。满额返回 429，排队和推理共超过 55 秒返回 504，调用方等待至少 60 秒。
+启用识别前，在已挂载的模型目录内单独准备 SenseVoice INT8 的 `model.int8.onnx` 和 `tokens.txt`，在私有配置设置 `asr_model_dir`，例如 `/models/zipvoice/sensevoice`。模型文件与部署源码分开保存。核对健康页 `asr: true`，用签名 WAV 样本验收后，在手持端业务后台配置 `HHT_VOICE_ASR_ENABLED=1`。识别和合成分别接纳请求，识别支持 100 条活动录音，其中最多两条同时推理。每个识别线程单独持有一个 SenseVoice 实例，按待处理音频长度选择负载较轻的线程。健康页 `asr_capacity` 展示限额、活动数和正在推理数。满额返回 429。后台与电脑测试台使用已签名的 `&wait=1`，响应每 8 秒发送 JSON 空白，队列和推理最多等待 240 秒。最终 JSON 返回文字，超时返回带 `status: 504` 的错误。默认接口仍返回常规 JSON 并保留 55 秒等待。
 
 ## 独立域名部署
 

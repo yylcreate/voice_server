@@ -12,15 +12,15 @@ def resource_config(config: dict, target: str | None = None) -> dict:
     result['deployment_target']=selected
     if selected==TARGET:
         # 允许二十条签名请求排队，同一时间仍由一个模型工作线程推理。--yyl
-        result.update(threads=2,max_streams=20,ffmpeg_threads=1,asr_workers=2,max_asr_requests=20)
+        result.update(threads=2,max_streams=20,ffmpeg_threads=1,asr_workers=2,max_asr_requests=100)
     else:
         result.setdefault('threads',4)
         result.setdefault('max_streams',4)
         result.setdefault('ffmpeg_threads',None)
         result.setdefault('asr_workers',2)
-        result.setdefault('max_asr_requests',20)
+        result.setdefault('max_asr_requests',100)
     for key,maximum in (('threads',8),('max_streams',20),('ffmpeg_threads',8),
-                        ('asr_workers',2),('max_asr_requests',20)):
+                        ('asr_workers',2),('max_asr_requests',100)):
         value=result[key]
         if key=='ffmpeg_threads'and value is None:continue
         if type(value)is not int or not 1<=value<=maximum:

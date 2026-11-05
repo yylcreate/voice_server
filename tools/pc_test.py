@@ -171,7 +171,7 @@ class Settings:
         if self.default not in self.voices or not 1<=len(self.voices)<=32:raise TestError('默认音色不可用')
         self.parallel=20 if self.upstream==UPSTREAM else 2
         self.token=secrets.token_hex(32);self.jobs=Jobs();self.slots=threading.BoundedSemaphore(self.parallel)
-        self.asr_parallel=20 if self.upstream==UPSTREAM else 1
+        self.asr_parallel=100 if self.upstream==UPSTREAM else 1
         self.asr_slot=threading.BoundedSemaphore(self.asr_parallel)
     # 原公开endpoint使用UPSTREAM；显示本进程实际固定的目标，避免国内对照误标为正式服务。--yyl
     def public(self):return {'endpoint':self.upstream,'voices':list(self.voices.values()),'default_voice_id':self.default,
@@ -273,7 +273,7 @@ class Handler(BaseHTTPRequestHandler):
             self.connection.settimeout(8)
             audio=self.rfile.read(size)
             if len(audio)!=size:raise TestError('录音上传不完整')
-            path='/v1/transcribe?user_id='+str(1800000000+secrets.randbelow(100000000))
+            path='/v1/transcribe?user_id='+str(1800000000+secrets.randbelow(100000000))+'&wait=1'
             start=time.perf_counter();conn=self.settings.connect();conn.connect()
             if conn.sock is not None:conn.sock.settimeout(60)
             conn.request('POST',path,body=audio,headers=sign_request(self.settings.secret,path,audio,'audio/wav'))
@@ -283,6 +283,7 @@ class Handler(BaseHTTPRequestHandler):
             if response.status==504:raise TestError('线上识别超时，请稍后再试',504)
             if response.status!=200 or len(raw)>65536:raise TestError('线上识别返回 HTTP '+str(response.status),502)
             data=json.loads(raw)
+            if isinstance(data,dict) and data.get('status')==504:raise TestError('线上识别等待超时，请稍后再试',504)
             if not isinstance(data,dict) or not isinstance(data.get('text'),str):raise TestError('线上识别响应无效',502)
             self.json(200,{'text':data['text'],'wall_s':round(time.perf_counter()-start,3)})
         finally:

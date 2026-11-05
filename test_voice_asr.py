@@ -57,30 +57,30 @@ class SignedRecognitionTests(unittest.TestCase):
             self.assertFalse(client.get('/health').json()['asr'])
             self.assertEqual(client.post(self.target, content=raw, headers=self.headers(raw)).status_code, 503)
 
-    def test_two_recognizers_admit_twenty_and_reject_the_next(self):
+    def test_two_recognizers_admit_one_hundred_and_reject_the_next(self):
         release = threading.Event()
         raw = wav(16000)
 
         class HeldRecognizer(FakeRecognizer):
             def recognize(self, samples):
-                if not release.wait(8):
+                if not release.wait(15):
                     raise RuntimeError('test did not release inference')
                 return super().recognize(samples)
 
         config = {'secret': SECRET, 'deployment_target': 'amd-4vcpu-12gb', 'asr_model_dir': 'unused'}
         with patch('server.VoiceRecognizer', side_effect=lambda _: HeldRecognizer()):
             app = create_app(config, FakeEngine())
-        with TestClient(app) as client, ThreadPoolExecutor(max_workers=20) as submitters:
+        with TestClient(app) as client, ThreadPoolExecutor(max_workers=100) as submitters:
             jobs = [submitters.submit(client.post, self.target, content=raw, headers=self.headers(raw))
-                    for _ in range(20)]
+                    for _ in range(100)]
             try:
-                deadline = time.monotonic() + 5
+                deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
                     capacity = client.get('/health').json()['asr_capacity']
-                    if capacity['active'] == 20 and capacity['running'] == 2:
+                    if capacity['active'] == 100 and capacity['running'] == 2:
                         break
                     time.sleep(.02)
-                self.assertEqual(capacity, {'workers': 2, 'limit': 20, 'active': 20, 'running': 2})
+                self.assertEqual(capacity, {'workers': 2, 'limit': 100, 'active': 100, 'running': 2})
                 self.assertEqual(client.post(self.target, content=raw, headers=self.headers(raw)).status_code, 429)
             finally:
                 release.set()
@@ -89,3 +89,16 @@ class SignedRecognitionTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json(), {'text': '查询工单。'})
             self.assertEqual(client.get('/health').json()['asr_capacity']['active'], 0)
+
+    def test_waiting_json_preserves_text_and_reports_inference_failure(self):
+        self.target += '&wait=1'
+        raw = wav(16000)
+        recognizer = FakeRecognizer()
+        with TestClient(create_app({'secret': SECRET}, FakeEngine(), recognizer)) as client:
+            response = client.post(self.target, content=raw, headers=self.headers(raw))
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.content.startswith(b' '))
+            self.assertEqual(response.json(), {'text': '查询工单。'})
+            with patch.object(recognizer, 'recognize', side_effect=RuntimeError('test')):
+                response = client.post(self.target, content=raw, headers=self.headers(raw))
+                self.assertEqual(response.json()['status'], 500)
