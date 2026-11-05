@@ -46,7 +46,7 @@ docker run --rm --network none --read-only --cpus 2.5 --memory 4g --pids-limit 1
 
 if [[ $old_running == true ]]; then
     curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8793/health \
-      | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ready"] and d["active"]==0, "Voice service must be healthy and idle before switching"'
+      | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ready"] and d["active"]==0 and d.get("asr_capacity",{}).get("active",0)==0, "Voice service must be healthy and idle before switching"'
 fi
 
 release_dir="/var/lib/xiaoya-voice/releases/$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:12}"
