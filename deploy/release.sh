@@ -58,7 +58,11 @@ fi
 replace_config() {
     local staged
     staged=$(mktemp /etc/xiaoya-voice/.config-release.XXXXXXXX)
-    install -o root -g 10001 -m 640 -- "$1" "$staged" && mv -T -- "$staged" "$live_config"
+    if install -m 640 -- "$1" "$staged" && chown 0:10001 "$staged" && mv -T -- "$staged" "$live_config"; then
+        return 0
+    fi
+    rm -f -- "$staged"
+    return 1
 }
 
 switched=false
