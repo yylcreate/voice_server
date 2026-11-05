@@ -275,7 +275,7 @@ class Handler(BaseHTTPRequestHandler):
             if len(audio)!=size:raise TestError('录音上传不完整')
             path='/v1/transcribe?user_id='+str(1800000000+secrets.randbelow(100000000))
             start=time.perf_counter();conn=self.settings.connect();conn.connect()
-            if conn.sock is not None:conn.sock.settimeout(30)
+            if conn.sock is not None:conn.sock.settimeout(60)
             conn.request('POST',path,body=audio,headers=sign_request(self.settings.secret,path,audio,'audio/wav'))
             response=conn.getresponse();raw=response.read(65537)
             if response.status==400:raise TestError('录音格式无效',400)

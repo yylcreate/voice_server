@@ -23,6 +23,7 @@ from runtime_profiles import resource_config, resource_info
 
 MAGIC = b"XYVOICE1"
 MEDIA = "application/vnd.yilian.xiaoya-voice"
+ASR_RESPONSE_SECONDS = 55
 
 
 def frame(kind: int, data: bytes | dict) -> bytes:
@@ -190,7 +191,7 @@ def create_app(config: dict, engine=None, recognizer=None):
         result = asyncio.wrap_future(asr_job)
         disconnect = asyncio.create_task(request.receive())
         try:
-            done, _ = await asyncio.wait((result, disconnect), timeout=20,
+            done, _ = await asyncio.wait((result, disconnect), timeout=ASR_RESPONSE_SECONDS,
                                          return_when=asyncio.FIRST_COMPLETED)
             if result in done:
                 return JSONResponse({'text': result.result()}, headers={'Cache-Control': 'no-store'})
